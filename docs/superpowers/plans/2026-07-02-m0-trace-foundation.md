@@ -392,8 +392,10 @@ impl TraceWriter {
         Ok(PassId(self.conn.last_insert_rowid()))
     }
 
+    /// Checkpoint and leave the file self-contained (no -wal/-shm sidecars),
+    /// so a finished trace is a single copyable file.
     pub fn finish(self) -> Result<()> {
-        self.conn.pragma_update(None, "wal_checkpoint", "TRUNCATE")?;
+        self.conn.pragma_update(None, "journal_mode", "DELETE")?;
         Ok(())
     }
 }
@@ -492,7 +494,8 @@ Add tests:
 
         match TraceReader::open(&path) {
             Err(TraceError::VersionMismatch { found, .. }) => assert_eq!(found, "99"),
-            other => panic!("expected VersionMismatch, got {other:?}"),
+            Err(other) => panic!("expected VersionMismatch, got {other:?}"),
+            Ok(_) => panic!("expected VersionMismatch, got Ok"),
         }
     }
 ```
@@ -1086,3 +1089,4 @@ git commit -m "test(trace-format): golden v1 conformance trace anchoring Contrac
 - **Spec coverage (M0 scope only, per spec §13):** schema v1 ✓ (Task 1, spec §5 verbatim), writer + dedup + zstd + xxhash ✓ (Task 2, matches Global Constraints), reader + version rejection ✓ (Task 3), fixture generator ✓ (Task 4), dump CLI ✓ (Task 5), conformance anchor for the M1 C++ writer ✓ (Task 6). Out of scope by design: structural tables, diff, server, UI (M1–M3 plans).
 - **Type consistency:** `BlobId`/`PassId`/`PassRecord`/`PassNode`/`TraceError` signatures identical across Tasks 2–6 interface blocks.
 - **Placeholder scan:** none; all steps carry complete code and exact commands.
+- **Acting verification (2026-07-02):** the plan's final-state code was materialized in a scratch workspace and `cargo test --workspace` run for real: **10/10 tests pass**, and `trace dump` output matches Task 5's expected output exactly. Two defects were found and are already fixed in this document: (1) the `reader_rejects_wrong_version` test needed split `Err(_)`/`Ok(_)` match arms because `TraceReader` isn't `Debug`; (2) `finish()` must reset `journal_mode` to `DELETE` — a WAL checkpoint alone leaves `-wal`/`-shm` sidecar files, breaking the "single copyable trace file" property.
