@@ -1084,6 +1084,12 @@ git commit -m "test(trace-format): golden v1 conformance trace anchoring Contrac
 
 ---
 
+## Deferred to Later Milestones (explicitly, per spec §12–§13)
+
+- **Cross-language conformance:** the golden fixture committed in Task 6 is Rust-generated; the mirror-image test that truly proves Contract 1 — the C++ `libmlir-trace` writer producing files this same reader accepts — lands in the M1 plan and targets `testdata/golden/` as its anchor.
+- **Schema evolution policy (binding now, tested in M3):** within major version 1, changes are **additive-only** (new tables/columns with defaults); the M3 plan must include a test that this v1 reader-era file still opens under the v1.1 schema. Breaking changes require bumping `FORMAT_VERSION`.
+- **Performance gates:** the 50k-ops × 100-pass benchmark trace and capture-overhead budget assertions (spec §12) require the M1 capture library and M2 server to exist; they are scaffolded in those plans, not here.
+
 ## Self-Review Notes
 
 - **Spec coverage (M0 scope only, per spec §13):** schema v1 ✓ (Task 1, spec §5 verbatim), writer + dedup + zstd + xxhash ✓ (Task 2, matches Global Constraints), reader + version rejection ✓ (Task 3), fixture generator ✓ (Task 4), dump CLI ✓ (Task 5), conformance anchor for the M1 C++ writer ✓ (Task 6). Out of scope by design: structural tables, diff, server, UI (M1–M3 plans).
