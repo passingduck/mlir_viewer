@@ -80,19 +80,28 @@ impl TraceReader {
             })?
             .collect::<std::result::Result<_, _>>()?;
 
-        // Assemble forest: children appear after parents (ids are insertion-ordered).
-        let mut nodes: std::collections::BTreeMap<i64, PassNode> = BTreeMap::new();
-        let mut parent_of: BTreeMap<i64, Option<i64>> = BTreeMap::new();
+        // Assemble the forest preserving the query's row order (grouped by
+        // parent_id, then by seq) so children and roots come out seq-ordered.
+        //
+        // `order` keeps the (id, parent) pairs in query order; `nodes` is an
+        // id-keyed lookup we drain from. Iterating `order` in reverse detaches
+        // each node's children-group (parent_id = its id) — which always sorts
+        // after the group containing the node itself, since child ids exceed
+        // parent ids — before the node itself is moved. `insert(0, …)` then
+        // restores ascending seq within each parent's children.
+        let mut order: Vec<(i64, Option<i64>)> = Vec::with_capacity(rows.len());
+        let mut nodes: std::collections::HashMap<i64, PassNode> =
+            std::collections::HashMap::with_capacity(rows.len());
         for row in rows {
-            parent_of.insert(row.id, row.parent);
+            order.push((row.id, row.parent));
             nodes.insert(row.id, row.node);
         }
         let mut roots = Vec::new();
-        for (id, parent) in parent_of.iter().rev() {
-            let node = nodes.remove(id).expect("node present");
+        for (id, parent) in order.into_iter().rev() {
+            let node = nodes.remove(&id).expect("node present");
             match parent {
                 Some(p) => nodes
-                    .get_mut(p)
+                    .get_mut(&p)
                     .ok_or_else(|| TraceError::Corrupt(format!("pass {id} has unknown parent {p}")))?
                     .children
                     .insert(0, node),

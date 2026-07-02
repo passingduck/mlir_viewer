@@ -139,6 +139,43 @@ mod tests {
     }
 
     #[test]
+    fn passes_orders_children_by_seq_not_insertion_order() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("t.mlirtrace");
+        let mut w = TraceWriter::create(&path).unwrap();
+        let blob = w.write_blob("module { A }").unwrap();
+        let root = w
+            .record_pass(&PassRecord {
+                parent: None, seq: 0, name: "Pipeline".into(),
+                ir_before: Some(blob), ir_after: Some(blob),
+                start_ns: 0, end_ns: 1000, ir_changed: true,
+            })
+            .unwrap();
+        // Record children in an order that DIVERGES from their seq values:
+        // the seq-1 child is inserted first (lower id), the seq-0 child second.
+        w.record_pass(&PassRecord {
+                parent: Some(root), seq: 1, name: "second".into(),
+                ir_before: Some(blob), ir_after: Some(blob),
+                start_ns: 10, end_ns: 20, ir_changed: false,
+            })
+            .unwrap();
+        w.record_pass(&PassRecord {
+                parent: Some(root), seq: 0, name: "first".into(),
+                ir_before: Some(blob), ir_after: Some(blob),
+                start_ns: 30, end_ns: 40, ir_changed: false,
+            })
+            .unwrap();
+        w.finish().unwrap();
+
+        let r = TraceReader::open(&path).unwrap();
+        let roots = r.passes().unwrap();
+        assert_eq!(roots.len(), 1);
+        assert_eq!(roots[0].children.len(), 2);
+        assert_eq!(roots[0].children[0].name, "first", "children must be ordered by seq, not insertion id");
+        assert_eq!(roots[0].children[1].name, "second");
+    }
+
+    #[test]
     fn reader_rejects_wrong_version() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("t.mlirtrace");
