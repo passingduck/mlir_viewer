@@ -1,15 +1,19 @@
 pub mod error;
+pub mod reader;
 pub mod schema;
 pub mod writer;
 
 pub use error::{Result, TraceError};
+pub use reader::{PassNode, TraceReader};
 pub use writer::{BlobId, PassId, PassRecord, TraceWriter};
 
 #[cfg(test)]
 mod tests {
     use rusqlite::Connection;
 
+    use crate::reader::TraceReader;
     use crate::writer::{PassRecord, TraceWriter};
+    use crate::TraceError;
 
     #[test]
     fn schema_applies_cleanly() {
@@ -94,5 +98,59 @@ mod tests {
             .query_row("SELECT parent_id FROM pass_execution WHERE name='canonicalize'", [], |r| r.get(0))
             .unwrap();
         assert_eq!(child_parent, root.0);
+    }
+
+    fn write_two_pass_trace(path: &std::path::Path) -> (crate::PassId, crate::BlobId) {
+        let mut w = TraceWriter::create(path).unwrap();
+        w.set_meta("producer", "test").unwrap();
+        let before = w.write_blob("module { A }").unwrap();
+        let after = w.write_blob("module { B }").unwrap();
+        let root = w
+            .record_pass(&PassRecord {
+                parent: None, seq: 0, name: "Pipeline".into(),
+                ir_before: Some(before), ir_after: Some(after),
+                start_ns: 0, end_ns: 1000, ir_changed: true,
+            })
+            .unwrap();
+        w.record_pass(&PassRecord {
+                parent: Some(root), seq: 0, name: "cse".into(),
+                ir_before: Some(before), ir_after: Some(after),
+                start_ns: 10, end_ns: 500, ir_changed: true,
+            })
+            .unwrap();
+        w.finish().unwrap();
+        (root, before)
+    }
+
+    #[test]
+    fn reader_round_trips_pass_tree_and_blobs() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("t.mlirtrace");
+        let (_root, before) = write_two_pass_trace(&path);
+
+        let r = TraceReader::open(&path).unwrap();
+        assert_eq!(r.meta().unwrap()["producer"], "test");
+        let roots = r.passes().unwrap();
+        assert_eq!(roots.len(), 1);
+        assert_eq!(roots[0].name, "Pipeline");
+        assert_eq!(roots[0].children.len(), 1);
+        assert_eq!(roots[0].children[0].name, "cse");
+        assert_eq!(r.blob_text(before).unwrap(), "module { A }");
+    }
+
+    #[test]
+    fn reader_rejects_wrong_version() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("t.mlirtrace");
+        write_two_pass_trace(&path);
+        let conn = Connection::open(&path).unwrap();
+        conn.execute("UPDATE meta SET value='99' WHERE key='format_version'", []).unwrap();
+        drop(conn);
+
+        match TraceReader::open(&path) {
+            Err(TraceError::VersionMismatch { found, .. }) => assert_eq!(found, "99"),
+            Err(other) => panic!("expected VersionMismatch, got {other:?}"),
+            Ok(_) => panic!("expected VersionMismatch, got Ok"),
+        }
     }
 }
