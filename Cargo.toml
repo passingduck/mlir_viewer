@@ -1,0 +1,11 @@
+[workspace]
+resolver = "2"
+members = ["crates/trace-format", "crates/cli"]
+
+[workspace.dependencies]
+anyhow = "1"
+thiserror = "2"
+rusqlite = { version = "0.32", features = ["bundled"] }
+zstd = "0.13"
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
+clap = { version = "4", features = ["derive"] }
