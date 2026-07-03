@@ -1,4 +1,5 @@
 pub mod error;
+pub mod fixture;
 pub mod reader;
 pub mod schema;
 pub mod writer;
@@ -173,6 +174,26 @@ mod tests {
         assert_eq!(roots[0].children.len(), 2);
         assert_eq!(roots[0].children[0].name, "first", "children must be ordered by seq, not insertion id");
         assert_eq!(roots[0].children[1].name, "second");
+    }
+
+    #[test]
+    fn demo_fixture_is_valid_and_deduped() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("demo.mlirtrace");
+        crate::fixture::write_demo_trace(&path).unwrap();
+
+        let r = TraceReader::open(&path).unwrap();
+        let roots = r.passes().unwrap();
+        assert_eq!(roots.len(), 1);
+        assert_eq!(roots[0].children.len(), 5);
+        let cse = &roots[0].children[1];
+        assert_eq!(cse.name, "cse");
+        assert!(!cse.ir_changed);
+        // A no-op pass shares before/after blob ids.
+        assert_eq!(cse.ir_before, cse.ir_after);
+        // Every snapshot decompresses to non-empty MLIR-ish text.
+        let text = r.blob_text(roots[0].ir_before.unwrap()).unwrap();
+        assert!(text.contains("func.func @forward"));
     }
 
     #[test]
