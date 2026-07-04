@@ -3,10 +3,12 @@
 #include "TraceStorage.h"
 
 #include "mlir/IR/MLIRContext.h"
+#include "mlir/IR/Operation.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassInstrumentation.h"
 #include "mlir/Pass/PassManager.h"
 #include "llvm/Support/Threading.h"
+#include "llvm/Support/raw_ostream.h"
 
 #include <chrono>
 #include <map>
@@ -35,6 +37,7 @@ struct ExecutionKey {
 struct ActivePass {
   int64_t id;
   int64_t parent;
+  std::optional<int64_t> before;
 };
 
 } // namespace
@@ -63,18 +66,15 @@ public:
     }
 
     void runBeforePass(Pass *pass, Operation *operation) final {
-      (void)operation;
-      owner.beforePass(pass);
+      owner.beforePass(pass, operation);
     }
 
     void runAfterPass(Pass *pass, Operation *operation) final {
-      (void)operation;
-      owner.afterPass(pass, false);
+      owner.afterPass(pass, operation, false);
     }
 
     void runAfterPassFailed(Pass *pass, Operation *operation) final {
-      (void)operation;
-      owner.afterPass(pass, true);
+      owner.afterPass(pass, operation, true);
     }
 
   private:
@@ -166,21 +166,42 @@ private:
       pipelineParents.erase(parents);
   }
 
-  void beforePass(Pass *pass) {
+  llvm::Expected<std::optional<int64_t>> snapshot(Operation *operation) {
+    if (options.fidelity == Fidelity::Timeline)
+      return std::optional<int64_t>();
+
+    std::string text;
+    llvm::raw_string_ostream stream(text);
+    operation->print(stream);
+    stream.flush();
+    auto blobOr = storage->writeBlob(text);
+    if (!blobOr)
+      return blobOr.takeError();
+    return std::optional<int64_t>(blobOr->value);
+  }
+
+  void beforePass(Pass *pass, Operation *operation) {
     std::lock_guard<std::mutex> lock(mutex);
     if (finished || firstError || !storage)
       return;
 
     const int64_t startNs = nowNs();
+    auto beforeOr = snapshot(operation);
+    if (!beforeOr) {
+      rememberError(beforeOr.takeError());
+      return;
+    }
+    std::optional<int64_t> before = *beforeOr;
     if (!rootPass) {
       auto rootOr =
-          storage->beginPass(std::nullopt, 0, "Pipeline", std::nullopt,
-                             startNs, false);
+          storage->beginPass(std::nullopt, 0, "Pipeline", before, startNs,
+                             false);
       if (!rootOr) {
         rememberError(rootOr.takeError());
         return;
       }
       rootPass = rootOr->value;
+      rootBefore = before;
     }
 
     int64_t parent = *rootPass;
@@ -193,20 +214,22 @@ private:
     if (name.empty())
       name = pass->getName();
     const int64_t sequence = nextSequence[parent]++;
-    auto passOr = storage->beginPass(parent, sequence, name, std::nullopt,
-                                     startNs, false);
+    auto passOr =
+        storage->beginPass(parent, sequence, name, before, startNs, false);
     if (!passOr) {
       rememberError(passOr.takeError());
       return;
     }
 
     ExecutionKey key{llvm::get_threadid(), pass};
-    if (!activePasses.emplace(key, ActivePass{passOr->value, parent}).second)
+    if (!activePasses
+             .emplace(key, ActivePass{passOr->value, parent, before})
+             .second)
       rememberError(llvm::createStringError(
           llvm::inconvertibleErrorCode(), "pass instrumentation re-entered"));
   }
 
-  void afterPass(Pass *pass, bool failed) {
+  void afterPass(Pass *pass, Operation *operation, bool failed) {
     std::lock_guard<std::mutex> lock(mutex);
     if (finished || firstError || !storage)
       return;
@@ -220,12 +243,27 @@ private:
     }
 
     const int64_t endNs = nowNs();
-    if (llvm::Error error = storage->endPass(active->second.id, std::nullopt,
-                                             endNs, failed))
+    std::optional<int64_t> after;
+    if (!failed) {
+      auto afterOr = snapshot(operation);
+      if (!afterOr) {
+        rememberError(afterOr.takeError());
+        return;
+      }
+      after = *afterOr;
+    }
+    const bool changed =
+        failed || (active->second.before && after &&
+                   active->second.before.value() != after.value());
+
+    if (llvm::Error error =
+            storage->endPass(active->second.id, after, endNs, changed))
       rememberError(std::move(error));
     if (!firstError && rootPass && active->second.parent == *rootPass) {
-      if (llvm::Error error =
-              storage->endPass(*rootPass, std::nullopt, endNs, failed))
+      const bool rootChanged =
+          failed || (rootBefore && after && rootBefore.value() != after.value());
+      if (llvm::Error error = storage->endPass(*rootPass, after, endNs,
+                                               rootChanged))
         rememberError(std::move(error));
     }
     if (failed && !firstError) {
@@ -243,6 +281,7 @@ private:
   std::unique_ptr<detail::TraceStorage> storage;
   std::optional<std::string> firstError;
   std::optional<int64_t> rootPass;
+  std::optional<int64_t> rootBefore;
   std::map<ExecutionKey, ActivePass> activePasses;
   std::map<uint64_t, std::vector<std::optional<int64_t>>> pipelineParents;
   std::map<int64_t, int64_t> nextSequence;

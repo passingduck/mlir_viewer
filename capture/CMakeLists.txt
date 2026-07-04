@@ -89,9 +89,22 @@ if(BUILD_TESTING)
     target_compile_options(mlir-trace-recorder-test PRIVATE -fno-rtti)
   endif()
   target_link_libraries(mlir-trace-recorder-test PRIVATE
-    MLIRTrace SQLite::SQLite3)
+    MLIRTrace MLIRFuncDialect SQLite::SQLite3)
 
   add_test(NAME recorder_timeline
     COMMAND mlir-trace-recorder-test
+            timeline
             "${CMAKE_CURRENT_BINARY_DIR}/recorder-timeline.mlirtrace")
+  add_test(NAME recorder_text
+    COMMAND mlir-trace-recorder-test
+            text
+            "${CMAKE_CURRENT_BINARY_DIR}/recorder-text.mlirtrace")
+  add_test(NAME recorder_failed_pass
+    COMMAND mlir-trace-recorder-test
+            failed
+            "${CMAKE_CURRENT_BINARY_DIR}/recorder-failed.mlirtrace")
+  add_test(NAME recorder_nested_pipeline
+    COMMAND mlir-trace-recorder-test
+            nested
+            "${CMAKE_CURRENT_BINARY_DIR}/recorder-nested.mlirtrace")
 endif()
