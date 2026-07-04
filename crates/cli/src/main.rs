@@ -1,1 +1,72 @@
-fn main() {}
+use std::path::PathBuf;
+
+use anyhow::Result;
+use clap::{Parser, Subcommand};
+use trace_format::{fixture, PassNode, TraceReader};
+
+#[derive(Parser)]
+#[command(name = "mlir-viewer", version, about = "Visual debugger for MLIR pass pipelines")]
+struct Cli {
+    #[command(subcommand)]
+    command: Cmd,
+}
+
+#[derive(Subcommand)]
+enum Cmd {
+    /// Inspect trace files
+    Trace {
+        #[command(subcommand)]
+        command: TraceCmd,
+    },
+    /// Developer utilities
+    Dev {
+        #[command(subcommand)]
+        command: DevCmd,
+    },
+}
+
+#[derive(Subcommand)]
+enum TraceCmd {
+    /// Print trace metadata and the pass execution tree
+    Dump { file: PathBuf },
+}
+
+#[derive(Subcommand)]
+enum DevCmd {
+    /// Write a deterministic demo trace (for development and tests)
+    GenFixture { file: PathBuf },
+}
+
+fn main() -> Result<()> {
+    match Cli::parse().command {
+        Cmd::Trace { command: TraceCmd::Dump { file } } => dump(&file),
+        Cmd::Dev { command: DevCmd::GenFixture { file } } => {
+            fixture::write_demo_trace(&file)?;
+            println!("wrote {}", file.display());
+            Ok(())
+        }
+    }
+}
+
+fn dump(file: &std::path::Path) -> Result<()> {
+    let reader = TraceReader::open(file)?;
+    println!("# meta");
+    for (k, v) in reader.meta()? {
+        println!("  {k} = {v}");
+    }
+    println!("# passes");
+    for root in reader.passes()? {
+        print_pass(&root, 0);
+    }
+    Ok(())
+}
+
+fn print_pass(node: &PassNode, depth: usize) {
+    let indent = "  ".repeat(depth + 1);
+    let ms = (node.end_ns - node.start_ns) as f64 / 1_000_000.0;
+    let marker = if node.ir_changed { "" } else { "  (no change)" };
+    println!("{indent}{} — {ms:.2}ms{marker}", node.name);
+    for child in &node.children {
+        print_pass(child, depth + 1);
+    }
+}
