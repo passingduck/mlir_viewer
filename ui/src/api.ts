@@ -54,5 +54,5 @@ export const api = {
   traceInfo: () => getJson<TraceInfo>('/api/trace/info'),
   passes: () => getJson<PassNode[]>('/api/passes'),
   irPage: (passId: number, side: IrSide) =>
-    getJson<IrPage>(`/api/passes/${passId}/ir?side=${side}`),
+    getJson<IrPage>(`/api/passes/${passId}/ir?side=${side}&limit=262144`),
 }
