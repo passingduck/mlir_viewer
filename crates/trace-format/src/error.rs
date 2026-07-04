@@ -5,7 +5,10 @@ pub enum TraceError {
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
     #[error("unsupported trace format version {found} (reader supports {supported})")]
-    VersionMismatch { found: String, supported: &'static str },
+    VersionMismatch {
+        found: String,
+        supported: &'static str,
+    },
     #[error("corrupt trace: {0}")]
     Corrupt(String),
 }

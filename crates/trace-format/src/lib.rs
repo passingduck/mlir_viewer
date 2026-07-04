@@ -44,11 +44,17 @@ mod tests {
 
         let conn = Connection::open(&path).unwrap();
         let v: String = conn
-            .query_row("SELECT value FROM meta WHERE key='format_version'", [], |r| r.get(0))
+            .query_row(
+                "SELECT value FROM meta WHERE key='format_version'",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(v, "1");
         let p: String = conn
-            .query_row("SELECT value FROM meta WHERE key='producer'", [], |r| r.get(0))
+            .query_row("SELECT value FROM meta WHERE key='producer'", [], |r| {
+                r.get(0)
+            })
             .unwrap();
         assert_eq!(p, "test");
     }
@@ -66,7 +72,9 @@ mod tests {
         w.finish().unwrap();
 
         let conn = Connection::open(&path).unwrap();
-        let n: i64 = conn.query_row("SELECT count(*) FROM ir_blob", [], |r| r.get(0)).unwrap();
+        let n: i64 = conn
+            .query_row("SELECT count(*) FROM ir_blob", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(n, 2);
     }
 
@@ -79,24 +87,40 @@ mod tests {
         let after = w.write_blob("module { B }").unwrap();
         let root = w
             .record_pass(&PassRecord {
-                parent: None, seq: 0, name: "Pipeline".into(),
-                ir_before: Some(before), ir_after: Some(after),
-                start_ns: 100, end_ns: 900, ir_changed: true,
+                parent: None,
+                seq: 0,
+                name: "Pipeline".into(),
+                ir_before: Some(before),
+                ir_after: Some(after),
+                start_ns: 100,
+                end_ns: 900,
+                ir_changed: true,
             })
             .unwrap();
         w.record_pass(&PassRecord {
-                parent: Some(root), seq: 0, name: "canonicalize".into(),
-                ir_before: Some(before), ir_after: Some(after),
-                start_ns: 150, end_ns: 400, ir_changed: true,
-            })
-            .unwrap();
+            parent: Some(root),
+            seq: 0,
+            name: "canonicalize".into(),
+            ir_before: Some(before),
+            ir_after: Some(after),
+            start_ns: 150,
+            end_ns: 400,
+            ir_changed: true,
+        })
+        .unwrap();
         w.finish().unwrap();
 
         let conn = Connection::open(&path).unwrap();
-        let n: i64 = conn.query_row("SELECT count(*) FROM pass_execution", [], |r| r.get(0)).unwrap();
+        let n: i64 = conn
+            .query_row("SELECT count(*) FROM pass_execution", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(n, 2);
         let child_parent: i64 = conn
-            .query_row("SELECT parent_id FROM pass_execution WHERE name='canonicalize'", [], |r| r.get(0))
+            .query_row(
+                "SELECT parent_id FROM pass_execution WHERE name='canonicalize'",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(child_parent, root.0);
     }
@@ -108,17 +132,27 @@ mod tests {
         let after = w.write_blob("module { B }").unwrap();
         let root = w
             .record_pass(&PassRecord {
-                parent: None, seq: 0, name: "Pipeline".into(),
-                ir_before: Some(before), ir_after: Some(after),
-                start_ns: 0, end_ns: 1000, ir_changed: true,
+                parent: None,
+                seq: 0,
+                name: "Pipeline".into(),
+                ir_before: Some(before),
+                ir_after: Some(after),
+                start_ns: 0,
+                end_ns: 1000,
+                ir_changed: true,
             })
             .unwrap();
         w.record_pass(&PassRecord {
-                parent: Some(root), seq: 0, name: "cse".into(),
-                ir_before: Some(before), ir_after: Some(after),
-                start_ns: 10, end_ns: 500, ir_changed: true,
-            })
-            .unwrap();
+            parent: Some(root),
+            seq: 0,
+            name: "cse".into(),
+            ir_before: Some(before),
+            ir_after: Some(after),
+            start_ns: 10,
+            end_ns: 500,
+            ir_changed: true,
+        })
+        .unwrap();
         w.finish().unwrap();
         (root, before)
     }
@@ -147,32 +181,50 @@ mod tests {
         let blob = w.write_blob("module { A }").unwrap();
         let root = w
             .record_pass(&PassRecord {
-                parent: None, seq: 0, name: "Pipeline".into(),
-                ir_before: Some(blob), ir_after: Some(blob),
-                start_ns: 0, end_ns: 1000, ir_changed: true,
+                parent: None,
+                seq: 0,
+                name: "Pipeline".into(),
+                ir_before: Some(blob),
+                ir_after: Some(blob),
+                start_ns: 0,
+                end_ns: 1000,
+                ir_changed: true,
             })
             .unwrap();
         // Record children in an order that DIVERGES from their seq values:
         // the seq-1 child is inserted first (lower id), the seq-0 child second.
         w.record_pass(&PassRecord {
-                parent: Some(root), seq: 1, name: "second".into(),
-                ir_before: Some(blob), ir_after: Some(blob),
-                start_ns: 10, end_ns: 20, ir_changed: false,
-            })
-            .unwrap();
+            parent: Some(root),
+            seq: 1,
+            name: "second".into(),
+            ir_before: Some(blob),
+            ir_after: Some(blob),
+            start_ns: 10,
+            end_ns: 20,
+            ir_changed: false,
+        })
+        .unwrap();
         w.record_pass(&PassRecord {
-                parent: Some(root), seq: 0, name: "first".into(),
-                ir_before: Some(blob), ir_after: Some(blob),
-                start_ns: 30, end_ns: 40, ir_changed: false,
-            })
-            .unwrap();
+            parent: Some(root),
+            seq: 0,
+            name: "first".into(),
+            ir_before: Some(blob),
+            ir_after: Some(blob),
+            start_ns: 30,
+            end_ns: 40,
+            ir_changed: false,
+        })
+        .unwrap();
         w.finish().unwrap();
 
         let r = TraceReader::open(&path).unwrap();
         let roots = r.passes().unwrap();
         assert_eq!(roots.len(), 1);
         assert_eq!(roots[0].children.len(), 2);
-        assert_eq!(roots[0].children[0].name, "first", "children must be ordered by seq, not insertion id");
+        assert_eq!(
+            roots[0].children[0].name, "first",
+            "children must be ordered by seq, not insertion id"
+        );
         assert_eq!(roots[0].children[1].name, "second");
     }
 
@@ -202,7 +254,8 @@ mod tests {
         let path = dir.path().join("t.mlirtrace");
         write_two_pass_trace(&path);
         let conn = Connection::open(&path).unwrap();
-        conn.execute("UPDATE meta SET value='99' WHERE key='format_version'", []).unwrap();
+        conn.execute("UPDATE meta SET value='99' WHERE key='format_version'", [])
+            .unwrap();
         drop(conn);
 
         match TraceReader::open(&path) {

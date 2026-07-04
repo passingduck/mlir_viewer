@@ -55,7 +55,11 @@ impl TraceWriter {
         let hash = xxh3_64(text.as_bytes()).to_be_bytes();
         if let Some(id) = self
             .conn
-            .query_row("SELECT id FROM ir_blob WHERE hash = ?1", params![&hash[..]], |r| r.get(0))
+            .query_row(
+                "SELECT id FROM ir_blob WHERE hash = ?1",
+                params![&hash[..]],
+                |r| r.get(0),
+            )
             .optional()?
         {
             return Ok(BlobId(id));

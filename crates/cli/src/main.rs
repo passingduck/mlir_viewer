@@ -5,7 +5,11 @@ use clap::{Parser, Subcommand};
 use trace_format::{fixture, PassNode, TraceReader};
 
 #[derive(Parser)]
-#[command(name = "mlir-viewer", version, about = "Visual debugger for MLIR pass pipelines")]
+#[command(
+    name = "mlir-viewer",
+    version,
+    about = "Visual debugger for MLIR pass pipelines"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Cmd,
@@ -39,8 +43,12 @@ enum DevCmd {
 
 fn main() -> Result<()> {
     match Cli::parse().command {
-        Cmd::Trace { command: TraceCmd::Dump { file } } => dump(&file),
-        Cmd::Dev { command: DevCmd::GenFixture { file } } => {
+        Cmd::Trace {
+            command: TraceCmd::Dump { file },
+        } => dump(&file),
+        Cmd::Dev {
+            command: DevCmd::GenFixture { file },
+        } => {
             fixture::write_demo_trace(&file)?;
             println!("wrote {}", file.display());
             Ok(())

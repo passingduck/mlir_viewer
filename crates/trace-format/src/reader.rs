@@ -28,12 +28,19 @@ impl TraceReader {
     pub fn open(path: &Path) -> Result<TraceReader> {
         let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
         let version: Option<String> = conn
-            .query_row("SELECT value FROM meta WHERE key='format_version'", [], |r| r.get(0))
+            .query_row(
+                "SELECT value FROM meta WHERE key='format_version'",
+                [],
+                |r| r.get(0),
+            )
             .optional()?;
         match version {
             None => return Err(TraceError::Corrupt("missing format_version".into())),
             Some(v) if v != FORMAT_VERSION => {
-                return Err(TraceError::VersionMismatch { found: v, supported: FORMAT_VERSION })
+                return Err(TraceError::VersionMismatch {
+                    found: v,
+                    supported: FORMAT_VERSION,
+                })
             }
             Some(_) => {}
         }
@@ -102,7 +109,9 @@ impl TraceReader {
             match parent {
                 Some(p) => nodes
                     .get_mut(&p)
-                    .ok_or_else(|| TraceError::Corrupt(format!("pass {id} has unknown parent {p}")))?
+                    .ok_or_else(|| {
+                        TraceError::Corrupt(format!("pass {id} has unknown parent {p}"))
+                    })?
                     .children
                     .insert(0, node),
                 None => roots.insert(0, node),
@@ -118,7 +127,9 @@ impl TraceReader {
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )?;
         if compression != "zstd" {
-            return Err(TraceError::Corrupt(format!("unknown compression {compression}")));
+            return Err(TraceError::Corrupt(format!(
+                "unknown compression {compression}"
+            )));
         }
         let bytes = zstd::decode_all(&data[..])
             .map_err(|e| TraceError::Corrupt(format!("zstd decode failed: {e}")))?;

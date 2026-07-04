@@ -62,8 +62,13 @@ const STAGES: [&str; 6] = [
 }"#,
 ];
 
-const PASS_NAMES: [&str; 5] =
-    ["canonicalize", "cse", "my-custom-fusion", "one-shot-bufferize", "convert-to-llvm"];
+const PASS_NAMES: [&str; 5] = [
+    "canonicalize",
+    "cse",
+    "my-custom-fusion",
+    "one-shot-bufferize",
+    "convert-to-llvm",
+];
 
 /// Deterministic demo trace used by CLI/server/UI tests and local development.
 pub fn write_demo_trace(path: &Path) -> Result<()> {
