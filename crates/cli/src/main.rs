@@ -1,3 +1,4 @@
+use std::net::SocketAddr;
 use std::path::PathBuf;
 
 use anyhow::Result;
@@ -17,6 +18,12 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
+    /// Serve a trace file to the local web viewer
+    Serve {
+        file: PathBuf,
+        #[arg(long, default_value = "127.0.0.1:3000")]
+        listen: SocketAddr,
+    },
     /// Inspect trace files
     Trace {
         #[command(subcommand)]
@@ -41,8 +48,10 @@ enum DevCmd {
     GenFixture { file: PathBuf },
 }
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     match Cli::parse().command {
+        Cmd::Serve { file, listen } => serve(&file, listen).await,
         Cmd::Trace {
             command: TraceCmd::Dump { file },
         } => dump(&file),
@@ -54,6 +63,15 @@ fn main() -> Result<()> {
             Ok(())
         }
     }
+}
+
+async fn serve(file: &std::path::Path, listen: SocketAddr) -> Result<()> {
+    let app = server::router(file)?;
+    let listener = tokio::net::TcpListener::bind(listen).await?;
+    let address = listener.local_addr()?;
+    eprintln!("mlir-viewer listening on http://{address}");
+    axum::serve(listener, app).await?;
+    Ok(())
 }
 
 fn dump(file: &std::path::Path) -> Result<()> {
