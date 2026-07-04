@@ -3,3 +3,5 @@
 /.worktrees
 *.mlirtrace
 !testdata/golden/*.mlirtrace
+**/CLAUDE.md
+!/CLAUDE.md
