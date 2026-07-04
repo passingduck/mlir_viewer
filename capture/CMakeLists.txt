@@ -45,6 +45,7 @@ else()
 endif()
 
 add_library(MLIRTrace SHARED
+  lib/TraceRecorder.cpp
   lib/TraceStorage.cpp)
 
 target_include_directories(MLIRTrace
@@ -79,4 +80,18 @@ if(BUILD_TESTING)
   add_test(NAME storage_contract
     COMMAND mlir-trace-storage-test
             "${CMAKE_CURRENT_BINARY_DIR}/storage-contract.mlirtrace")
+
+  add_executable(mlir-trace-recorder-test tests/TraceRecorderTest.cpp)
+  target_include_directories(mlir-trace-recorder-test PRIVATE
+    ${LLVM_INCLUDE_DIRS}
+    ${MLIR_INCLUDE_DIRS})
+  if(NOT LLVM_ENABLE_RTTI)
+    target_compile_options(mlir-trace-recorder-test PRIVATE -fno-rtti)
+  endif()
+  target_link_libraries(mlir-trace-recorder-test PRIVATE
+    MLIRTrace SQLite::SQLite3)
+
+  add_test(NAME recorder_timeline
+    COMMAND mlir-trace-recorder-test
+            "${CMAKE_CURRENT_BINARY_DIR}/recorder-timeline.mlirtrace")
 endif()
