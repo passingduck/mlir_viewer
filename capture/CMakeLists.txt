@@ -44,7 +44,7 @@ else()
   set_target_properties(MLIRTraceXXHash PROPERTIES POSITION_INDEPENDENT_CODE ON)
 endif()
 
-add_library(MLIRTrace SHARED
+add_library(MLIRTrace STATIC
   lib/TraceRecorder.cpp
   lib/TraceStorage.cpp)
 
@@ -65,8 +65,15 @@ target_link_libraries(MLIRTrace
   PUBLIC MLIRIR MLIRPass LLVMSupport
   PRIVATE SQLite::SQLite3 ${MLIR_TRACE_ZSTD_TARGET} MLIRTraceXXHash)
 
+add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../examples/capture-toy"
+                 "${CMAKE_CURRENT_BINARY_DIR}/capture-toy")
+
 include(CTest)
 if(BUILD_TESTING)
+  set(MLIR_VIEWER_BIN
+      "${CMAKE_CURRENT_SOURCE_DIR}/../target/debug/mlir-viewer"
+      CACHE FILEPATH "Path to the Rust mlir-viewer binary")
+
   add_executable(mlir-trace-storage-test tests/TraceStorageTest.cpp)
   target_include_directories(mlir-trace-storage-test PRIVATE
     lib
@@ -107,4 +114,11 @@ if(BUILD_TESTING)
     COMMAND mlir-trace-recorder-test
             nested
             "${CMAKE_CURRENT_BINARY_DIR}/recorder-nested.mlirtrace")
+
+  add_test(NAME cpp_trace_rust_reader
+    COMMAND "${CMAKE_COMMAND}"
+      -DEXAMPLE_BIN=${CMAKE_CURRENT_BINARY_DIR}/mlir-trace-example
+      -DMLIR_VIEWER_BIN=${MLIR_VIEWER_BIN}
+      -DTRACE_PATH=${CMAKE_CURRENT_BINARY_DIR}/cpp-demo.mlirtrace
+      -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/CheckRustReader.cmake)
 endif()
