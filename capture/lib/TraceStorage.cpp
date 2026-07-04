@@ -3,6 +3,7 @@
 #include "llvm/Support/Error.h"
 
 #include <sqlite3.h>
+#define XXH_INLINE_ALL
 #include <xxhash.h>
 #include <zstd.h>
 

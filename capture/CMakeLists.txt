@@ -23,14 +23,8 @@ message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
 
 include(FetchContent)
 find_path(XXHASH_INCLUDE_DIR NAMES xxhash.h)
-find_library(XXHASH_LIBRARY NAMES xxhash)
 
-if(XXHASH_INCLUDE_DIR AND XXHASH_LIBRARY)
-  add_library(MLIRTraceXXHash UNKNOWN IMPORTED)
-  set_target_properties(MLIRTraceXXHash PROPERTIES
-    IMPORTED_LOCATION "${XXHASH_LIBRARY}"
-    INTERFACE_INCLUDE_DIRECTORIES "${XXHASH_INCLUDE_DIR}")
-else()
+if(NOT XXHASH_INCLUDE_DIR)
   FetchContent_Declare(xxhash
     GIT_REPOSITORY https://github.com/Cyan4973/xxHash.git
     GIT_TAG v0.8.3
@@ -39,14 +33,13 @@ else()
   if(NOT xxhash_POPULATED)
     FetchContent_Populate(xxhash)
   endif()
-  add_library(MLIRTraceXXHash STATIC "${xxhash_SOURCE_DIR}/xxhash.c")
-  target_include_directories(MLIRTraceXXHash PUBLIC "${xxhash_SOURCE_DIR}")
-  set_target_properties(MLIRTraceXXHash PROPERTIES POSITION_INDEPENDENT_CODE ON)
+  set(XXHASH_INCLUDE_DIR "${xxhash_SOURCE_DIR}")
 endif()
 
 add_library(MLIRTrace STATIC
   lib/TraceRecorder.cpp
   lib/TraceStorage.cpp)
+target_compile_features(MLIRTrace PUBLIC cxx_std_17)
 
 target_include_directories(MLIRTrace
   PUBLIC
@@ -54,6 +47,7 @@ target_include_directories(MLIRTrace
     "$<INSTALL_INTERFACE:include>"
   PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/lib"
+    "${XXHASH_INCLUDE_DIR}"
     ${LLVM_INCLUDE_DIRS}
     ${MLIR_INCLUDE_DIRS})
 
@@ -63,10 +57,36 @@ if(NOT LLVM_ENABLE_RTTI)
 endif()
 target_link_libraries(MLIRTrace
   PUBLIC MLIRIR MLIRPass LLVMSupport
-  PRIVATE SQLite::SQLite3 ${MLIR_TRACE_ZSTD_TARGET} MLIRTraceXXHash)
+  PRIVATE SQLite::SQLite3 ${MLIR_TRACE_ZSTD_TARGET})
 
 add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../examples/capture-toy"
                  "${CMAKE_CURRENT_BINARY_DIR}/capture-toy")
+
+include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
+
+install(TARGETS MLIRTrace
+  EXPORT MLIRTraceTargets
+  ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}")
+install(DIRECTORY include/ DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
+
+configure_package_config_file(
+  cmake/MLIRTraceConfig.cmake.in
+  "${CMAKE_CURRENT_BINARY_DIR}/MLIRTraceConfig.cmake"
+  INSTALL_DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/MLIRTrace")
+write_basic_package_version_file(
+  "${CMAKE_CURRENT_BINARY_DIR}/MLIRTraceConfigVersion.cmake"
+  VERSION "${PROJECT_VERSION}"
+  COMPATIBILITY SameMajorVersion)
+
+install(EXPORT MLIRTraceTargets
+  FILE MLIRTraceTargets.cmake
+  NAMESPACE MLIRTrace::
+  DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/MLIRTrace")
+install(FILES
+  "${CMAKE_CURRENT_BINARY_DIR}/MLIRTraceConfig.cmake"
+  "${CMAKE_CURRENT_BINARY_DIR}/MLIRTraceConfigVersion.cmake"
+  DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/MLIRTrace")
 
 include(CTest)
 if(BUILD_TESTING)
@@ -121,4 +141,13 @@ if(BUILD_TESTING)
       -DMLIR_VIEWER_BIN=${MLIR_VIEWER_BIN}
       -DTRACE_PATH=${CMAKE_CURRENT_BINARY_DIR}/cpp-demo.mlirtrace
       -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/CheckRustReader.cmake)
+
+  add_test(NAME install_consumer
+    COMMAND "${CMAKE_COMMAND}"
+      -DPROJECT_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}
+      -DTEST_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}
+      -DCONSUMER_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/tests/install-consumer
+      -DPACKAGE_CMAKE_DIR=lib/cmake/MLIRTrace
+      -DMLIR_DIR=${MLIR_DIR}
+      -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/CheckInstallConsumer.cmake)
 endif()

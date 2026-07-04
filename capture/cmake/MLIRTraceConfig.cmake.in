@@ -1,0 +1,10 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+find_dependency(MLIR CONFIG REQUIRED)
+find_dependency(SQLite3 REQUIRED)
+
+include("${CMAKE_CURRENT_LIST_DIR}/MLIRTraceTargets.cmake")
+set_property(TARGET MLIRTrace::MLIRTrace APPEND PROPERTY
+  INTERFACE_INCLUDE_DIRECTORIES "${LLVM_INCLUDE_DIRS}" "${MLIR_INCLUDE_DIRS}")
+check_required_components(MLIRTrace)
