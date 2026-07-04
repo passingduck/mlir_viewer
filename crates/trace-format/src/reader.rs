@@ -168,9 +168,8 @@ impl TraceReader {
             )
             .optional()?
             .ok_or_else(|| TraceError::Corrupt(format!("missing blob {}", id.0)))?;
-        usize::try_from(size).map_err(|_| {
-            TraceError::Corrupt(format!("blob {} has invalid size {size}", id.0))
-        })
+        usize::try_from(size)
+            .map_err(|_| TraceError::Corrupt(format!("blob {} has invalid size {size}", id.0)))
     }
 
     pub fn blob_text(&self, id: BlobId) -> Result<String> {

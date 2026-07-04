@@ -254,9 +254,12 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "assert_cmd",
+ "axum",
  "clap",
  "predicates",
+ "server",
  "tempfile",
+ "tokio",
  "trace-format",
 ]
 
