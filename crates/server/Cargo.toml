@@ -1,0 +1,18 @@
+[package]
+name = "server"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+axum = { workspace = true }
+mime_guess = { workspace = true }
+rust-embed = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+trace-format = { path = "../trace-format" }
+
+[dev-dependencies]
+http-body-util = { workspace = true }
+tempfile = "3"
+tokio = { workspace = true }
+tower = { workspace = true }

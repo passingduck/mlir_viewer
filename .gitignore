@@ -3,5 +3,7 @@
 /.worktrees
 *.mlirtrace
 !testdata/golden/*.mlirtrace
+/ui/dist/*
+!/ui/dist/.gitkeep
 **/CLAUDE.md
 !/CLAUDE.md
