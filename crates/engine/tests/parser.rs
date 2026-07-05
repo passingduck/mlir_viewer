@@ -1,4 +1,6 @@
 use engine::parse_module;
+use trace_format::fixture::write_demo_trace;
+use trace_format::TraceReader;
 
 #[test]
 fn parses_result_name_op_and_operands() {
@@ -84,4 +86,38 @@ llvm.func @b() { llvm.return }
     let m = parse_module(text);
     let names: Vec<_> = m.functions.iter().map(|f| f.name.as_str()).collect();
     assert_eq!(names, vec!["a", "b"]);
+}
+
+#[test]
+fn malformed_line_becomes_opaque_op_and_parsing_continues() {
+    let m = parse_module("@@@ garbage !!!\n%0 = arith.constant 1 : i32\n");
+    assert!(m.ops.iter().any(|op| op.opaque), "expected an opaque op");
+    assert!(m.ops.iter().any(|op| op.name == "arith.constant"));
+}
+
+#[test]
+fn every_demo_snapshot_parses_into_scopes() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("demo.mlirtrace");
+    write_demo_trace(&path).unwrap();
+    let reader = TraceReader::open(&path).unwrap();
+
+    let roots = reader.passes().unwrap();
+    let root = &roots[0];
+    for pass in &root.children {
+        for blob in [pass.ir_before, pass.ir_after].into_iter().flatten() {
+            let text = reader.blob_text(blob).unwrap();
+            let m = parse_module(&text);
+            assert!(
+                !m.functions.is_empty(),
+                "snapshot produced no scope:\n{text}"
+            );
+            assert!(
+                m.functions
+                    .iter()
+                    .any(|function| function.name == "forward"),
+                "missing @forward scope:\n{text}"
+            );
+        }
+    }
 }

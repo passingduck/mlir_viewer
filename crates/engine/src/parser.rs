@@ -250,24 +250,49 @@ pub fn parse_module(text: &str) -> ParsedModule {
         let depth = region_path.len();
         let (results, rest) = split_results(trimmed);
         let name = op_name(rest);
+        let opaque = name.is_empty()
+            || !name
+                .chars()
+                .next()
+                .map(|first| first.is_alphabetic() || first == '_')
+                .unwrap_or(false);
+        let name = if opaque {
+            trimmed
+                .split_whitespace()
+                .next()
+                .unwrap_or("<opaque>")
+                .to_string()
+        } else {
+            name
+        };
         let operands: Vec<String> = ssa_names(rest)
             .into_iter()
             .filter(|n| !results.contains(n))
             .collect();
+        let (results, operands, result_types, attr_summary) = if opaque {
+            (Vec::new(), Vec::new(), Vec::new(), String::new())
+        } else {
+            (
+                results,
+                operands,
+                result_types(trimmed),
+                attr_summary(trimmed),
+            )
+        };
         let idx: OpIdx = ops.len();
         ops.push(ParsedOp {
             idx,
             name,
             results,
             operands,
-            result_types: result_types(trimmed),
-            attr_summary: attr_summary(trimmed),
+            result_types,
+            attr_summary,
             location: location(trimmed),
             region_path: region_path.clone(),
             depth,
             line_start: st.line_start,
             line_end: st.line_end,
-            opaque: false,
+            opaque,
         });
 
         // Balanced single-line function bodies need their inner operations
