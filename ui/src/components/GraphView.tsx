@@ -5,9 +5,15 @@ import { drawGraph, hitTest, type Layout, type ViewState } from '../graph/render
 interface GraphViewProps {
   graph: DataflowGraph | null
   diffEnabled: boolean
+  onSelectOp?: (uid: string) => void
 }
 
-export function GraphView({ graph, diffEnabled }: GraphViewProps) {
+export function selectableUid(graph: DataflowGraph | null, nodeId: string | null): string | null {
+  if (!graph || nodeId === null) return null
+  return graph.nodes.find((node) => node.id === nodeId)?.uid ?? null
+}
+
+export function GraphView({ graph, diffEnabled, onSelectOp }: GraphViewProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [layout, setLayout] = useState<Layout | null>(null)
   const [layingOut, setLayingOut] = useState(false)
@@ -99,8 +105,11 @@ export function GraphView({ graph, diffEnabled }: GraphViewProps) {
     event.currentTarget.releasePointerCapture(event.pointerId)
     if (!moved && layout) {
       const world = toWorld(event.clientX, event.clientY)
-      viewRef.current.selectedId = hitTest(layout, world.x, world.y)
+      const selectedId = hitTest(layout, world.x, world.y)
+      viewRef.current.selectedId = selectedId
       redraw()
+      const uid = selectableUid(graph, selectedId)
+      if (uid) onSelectOp?.(uid)
     }
   }
 

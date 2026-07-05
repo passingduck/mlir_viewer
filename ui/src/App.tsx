@@ -7,7 +7,7 @@ import { useViewerStore } from './store'
 import './styles.css'
 
 export function App() {
-  const { status, error, info, roots, passesById, selectedPassId, before, after, diff, graph, diffEnabled, viewMode, load, selectPass } = useViewerStore()
+  const { status, error, info, roots, passesById, selectedPassId, before, after, diff, graph, diffEnabled, viewMode, selectableBefore, selectableAfter, load, selectPass, selectOp } = useViewerStore()
   const selectedPass = selectedPassId === null ? null : passesById[selectedPassId]
   const diffAvailable = Boolean(
     selectedPass && selectedPass.ir_before !== null && selectedPass.ir_after !== null,
@@ -33,9 +33,16 @@ export function App() {
           <div className="viewer-pane">
             <Toolbar diffAvailable={diffAvailable} />
             {viewMode === 'graph' ? (
-              <GraphView graph={graph} diffEnabled={diffEnabled} />
+              <GraphView graph={graph} diffEnabled={diffEnabled} onSelectOp={(uid) => void selectOp(uid)} />
             ) : (
-              <IrViewer before={before} after={after} diff={diffEnabled ? diff : null} />
+              <IrViewer
+                before={before}
+                after={after}
+                diff={diffEnabled ? diff : null}
+                beforeOps={selectableBefore}
+                afterOps={selectableAfter}
+                onSelectOp={(uid) => void selectOp(uid)}
+              />
             )}
           </div>
         </main>
