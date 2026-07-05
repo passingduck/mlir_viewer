@@ -49,7 +49,7 @@ async fn fixture_api_is_bounded_and_validated() {
 
     let (status, info) = response_json(app.clone(), "/api/trace/info").await;
     assert_eq!(status, 200);
-    assert_eq!(info["format_version"], "1");
+    assert_eq!(info["format_version"], trace_format::schema::FORMAT_VERSION);
     assert_eq!(info["pass_count"], 6);
 
     let (status, passes) = response_json(app.clone(), "/api/passes").await;

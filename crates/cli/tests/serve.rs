@@ -62,5 +62,9 @@ fn serve_binds_ephemeral_port_and_answers_api_requests() {
     child.kill().unwrap();
     child.wait().unwrap();
     assert!(response.starts_with("HTTP/1.1 200 OK"), "{response}");
-    assert!(response.contains("\"format_version\":\"1\""), "{response}");
+    let expected = format!(
+        "\"format_version\":\"{}\"",
+        trace_format::schema::FORMAT_VERSION
+    );
+    assert!(response.contains(&expected), "{response}");
 }

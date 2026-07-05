@@ -27,6 +27,30 @@ fn gen_fixture_then_dump_shows_pass_tree() {
 }
 
 #[test]
+fn full_fixture_flag_writes_identity_demo() {
+    let dir = tempfile::tempdir().unwrap();
+    let trace = dir.path().join("full.mlirtrace");
+
+    Command::cargo_bin("mlir-viewer")
+        .unwrap()
+        .args(["dev", "gen-fixture", "--full"])
+        .arg(&trace)
+        .assert()
+        .success();
+
+    Command::cargo_bin("mlir-viewer")
+        .unwrap()
+        .args(["trace", "dump"])
+        .arg(&trace)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("fidelity = full"))
+        .stdout(predicate::str::contains("canonicalize"))
+        .stdout(predicate::str::contains("dce"))
+        .stdout(predicate::str::contains("set-attr"));
+}
+
+#[test]
 fn dump_rejects_non_trace_file() {
     let dir = tempfile::tempdir().unwrap();
     let bogus = dir.path().join("bogus.mlirtrace");

@@ -1,7 +1,8 @@
 use std::path::Path;
 
 use crate::error::Result;
-use crate::writer::{PassRecord, TraceWriter};
+use crate::identity::{IdentityEvent, IdentityKind, IdentitySource, OpIndexRow, Side};
+use crate::writer::{PassId, PassRecord, TraceWriter};
 
 /// Stage snapshots for a miniature torch-to-LLVM pipeline. Index i is the IR
 /// *before* child pass i; index i+1 is the IR after it. `cse` is a no-op.
@@ -107,4 +108,188 @@ pub fn write_demo_trace(path: &Path) -> Result<()> {
         })?;
     }
     w.finish()
+}
+
+const FULL_STAGES: [&str; 4] = [
+    "func.func @f(%arg0: i32) -> i32 {\n  %0 = arith.addi %arg0, %arg0 : i32\n  %1 = arith.muli %0, %0 : i32\n  return %1 : i32\n}\n",
+    "func.func @f(%arg0: i32) -> i32 {\n  %0 = arith.shli %arg0, %arg0 : i32\n  %1 = arith.muli %0, %0 : i32\n  return %1 : i32\n}\n",
+    "func.func @f(%arg0: i32) -> i32 {\n  %0 = arith.shli %arg0, %arg0 : i32\n  return %0 : i32\n}\n",
+    "func.func @f(%arg0: i32) -> i32 {\n  %0 = arith.shli %arg0, %arg0 {fast} : i32\n  return %0 : i32\n}\n",
+];
+
+fn index_side(
+    writer: &mut TraceWriter,
+    pass: PassId,
+    side: Side,
+    text: &str,
+    tokens: &[(&str, i64)],
+) -> Result<()> {
+    let mut offset = 0;
+    for line in text.split_inclusive('\n') {
+        let trimmed = line.trim_start();
+        if let Some((_, token)) = tokens.iter().find(|(needle, _)| line.contains(needle)) {
+            let byte_start = offset + line.len() - trimmed.len();
+            let byte_end = offset + line.trim_end().len();
+            let operation = trimmed
+                .split_once('=')
+                .map(|(_, operation)| operation.trim_start())
+                .unwrap_or(trimmed);
+            let op_name = operation
+                .split(|character: char| character.is_whitespace() || character == '(')
+                .next()
+                .unwrap_or("unknown")
+                .to_string();
+            writer.write_op_index(&OpIndexRow {
+                pass,
+                side,
+                ptr_token: *token,
+                byte_start: byte_start as i64,
+                byte_end: byte_end as i64,
+                op_name,
+            })?;
+        }
+        offset += line.len();
+    }
+    Ok(())
+}
+
+/// Deterministic full-fidelity fixture with realistic intra-pass pointer continuity.
+pub fn write_full_demo_trace(path: &Path) -> Result<()> {
+    let mut writer = TraceWriter::create(path)?;
+    writer.set_meta("producer", "trace-format fixture 0.1 (full)")?;
+    writer.set_meta("fidelity", "full")?;
+    writer.set_meta("created_at_utc", "2026-07-05T00:00:00Z")?;
+
+    let blobs: Vec<_> = FULL_STAGES
+        .iter()
+        .map(|stage| writer.write_blob(stage))
+        .collect::<Result<_>>()?;
+    let root = writer.record_pass(&PassRecord {
+        parent: None,
+        seq: 0,
+        name: "Pipeline".into(),
+        ir_before: Some(blobs[0]),
+        ir_after: Some(blobs[3]),
+        start_ns: 0,
+        end_ns: 3_000_000,
+        ir_changed: true,
+    })?;
+
+    struct Step<'a> {
+        name: &'a str,
+        before_stage: usize,
+        after_stage: usize,
+        before_tokens: &'a [(&'a str, i64)],
+        after_tokens: &'a [(&'a str, i64)],
+        event: IdentityEvent,
+    }
+
+    let placeholder = PassId(0);
+    let steps = [
+        Step {
+            name: "canonicalize",
+            before_stage: 0,
+            after_stage: 1,
+            before_tokens: &[
+                ("func.func", 0x1000),
+                ("arith.addi", 0x1001),
+                ("arith.muli", 0x1002),
+                ("return", 0x1003),
+            ],
+            after_tokens: &[
+                ("func.func", 0x1000),
+                ("arith.shli", 0x1081),
+                ("arith.muli", 0x1002),
+                ("return", 0x1003),
+            ],
+            event: IdentityEvent {
+                pass: placeholder,
+                kind: IdentityKind::Replaced,
+                ptr_token: 0x1001,
+                new_token: Some(0x1081),
+                pattern: Some("AddIToShift".into()),
+                source: IdentitySource::Listener,
+                seq: 0,
+            },
+        },
+        Step {
+            name: "dce",
+            before_stage: 1,
+            after_stage: 2,
+            before_tokens: &[
+                ("func.func", 0x2000),
+                ("arith.shli", 0x2001),
+                ("arith.muli", 0x2002),
+                ("return", 0x2003),
+            ],
+            after_tokens: &[
+                ("func.func", 0x2000),
+                ("arith.shli", 0x2001),
+                ("return", 0x2003),
+            ],
+            event: IdentityEvent {
+                pass: placeholder,
+                kind: IdentityKind::Erased,
+                ptr_token: 0x2002,
+                new_token: None,
+                pattern: None,
+                source: IdentitySource::Listener,
+                seq: 0,
+            },
+        },
+        Step {
+            name: "set-attr",
+            before_stage: 2,
+            after_stage: 3,
+            before_tokens: &[
+                ("func.func", 0x3000),
+                ("arith.shli", 0x3001),
+                ("return", 0x3003),
+            ],
+            after_tokens: &[
+                ("func.func", 0x3000),
+                ("arith.shli", 0x3001),
+                ("return", 0x3003),
+            ],
+            event: IdentityEvent {
+                pass: placeholder,
+                kind: IdentityKind::Modified,
+                ptr_token: 0x3001,
+                new_token: None,
+                pattern: Some("SetFastAttr".into()),
+                source: IdentitySource::Listener,
+                seq: 0,
+            },
+        },
+    ];
+
+    for (sequence, step) in steps.into_iter().enumerate() {
+        let pass = writer.record_pass(&PassRecord {
+            parent: Some(root),
+            seq: sequence as i64,
+            name: step.name.into(),
+            ir_before: Some(blobs[step.before_stage]),
+            ir_after: Some(blobs[step.after_stage]),
+            start_ns: sequence as i64 * 1_000_000,
+            end_ns: (sequence as i64 + 1) * 1_000_000,
+            ir_changed: true,
+        })?;
+        index_side(
+            &mut writer,
+            pass,
+            Side::Before,
+            FULL_STAGES[step.before_stage],
+            step.before_tokens,
+        )?;
+        index_side(
+            &mut writer,
+            pass,
+            Side::After,
+            FULL_STAGES[step.after_stage],
+            step.after_tokens,
+        )?;
+        writer.write_identity_event(&IdentityEvent { pass, ..step.event })?;
+    }
+
+    writer.finish()
 }

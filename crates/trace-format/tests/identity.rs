@@ -1,5 +1,6 @@
 use rusqlite::Connection;
 use tempfile::tempdir;
+use trace_format::fixture::write_full_demo_trace;
 use trace_format::{
     IdentityEvent, IdentityKind, IdentitySource, OpIndexRow, PassId, PassRecord, Side, TraceError,
     TraceReader, TraceWriter,
@@ -156,4 +157,56 @@ fn invalid_identity_encoding_is_rejected() {
         reader.identity_events(pass),
         Err(TraceError::Corrupt(message)) if message.contains("not-a-kind")
     ));
+}
+
+#[test]
+fn full_fixture_has_scripted_identity_stream() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("full.mlirtrace");
+    write_full_demo_trace(&path).unwrap();
+
+    let reader = TraceReader::open(&path).unwrap();
+    assert_eq!(reader.meta().unwrap().get("fidelity").unwrap(), "full");
+    let roots = reader.passes().unwrap();
+    let leaves = &roots[0].children;
+    let names: Vec<_> = leaves.iter().map(|pass| pass.name.as_str()).collect();
+    assert_eq!(names, vec!["canonicalize", "dce", "set-attr"]);
+
+    for (pass_name, expected_kind) in [
+        ("canonicalize", IdentityKind::Replaced),
+        ("dce", IdentityKind::Erased),
+        ("set-attr", IdentityKind::Modified),
+    ] {
+        let pass = leaves.iter().find(|pass| pass.name == pass_name).unwrap();
+        let events = reader.identity_events(pass.id).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].kind, expected_kind);
+    }
+
+    let canonicalize = leaves
+        .iter()
+        .find(|pass| pass.name == "canonicalize")
+        .unwrap();
+    let after_text = reader.blob_text(canonicalize.ir_after.unwrap()).unwrap();
+    for row in reader
+        .op_index(canonicalize.id)
+        .unwrap()
+        .iter()
+        .filter(|row| row.side == Side::After)
+    {
+        let start = row.byte_start as usize;
+        let end = row.byte_end as usize;
+        assert!(end <= after_text.len() && start <= end);
+        assert!(after_text[start..end].contains(row.op_name.as_str()));
+    }
+
+    let set_attr = leaves.iter().find(|pass| pass.name == "set-attr").unwrap();
+    let event = reader.identity_events(set_attr.id).unwrap().remove(0);
+    let index = reader.op_index(set_attr.id).unwrap();
+    assert!(index
+        .iter()
+        .any(|row| row.side == Side::Before && row.ptr_token == event.ptr_token));
+    assert!(index
+        .iter()
+        .any(|row| row.side == Side::After && row.ptr_token == event.ptr_token));
 }

@@ -45,7 +45,12 @@ enum TraceCmd {
 #[derive(Subcommand)]
 enum DevCmd {
     /// Write a deterministic demo trace (for development and tests)
-    GenFixture { file: PathBuf },
+    GenFixture {
+        file: PathBuf,
+        /// Emit a full-fidelity trace with a scripted op-identity stream.
+        #[arg(long)]
+        full: bool,
+    },
 }
 
 #[tokio::main]
@@ -56,9 +61,13 @@ async fn main() -> Result<()> {
             command: TraceCmd::Dump { file },
         } => dump(&file),
         Cmd::Dev {
-            command: DevCmd::GenFixture { file },
+            command: DevCmd::GenFixture { file, full },
         } => {
-            fixture::write_demo_trace(&file)?;
+            if full {
+                fixture::write_full_demo_trace(&file)?;
+            } else {
+                fixture::write_demo_trace(&file)?;
+            }
             println!("wrote {}", file.display());
             Ok(())
         }
