@@ -5,7 +5,7 @@ use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
 use xxhash_rust::xxh3::xxh3_64;
 
 use crate::error::{Result, TraceError};
-use crate::schema::FORMAT_VERSION;
+use crate::schema::{FORMAT_VERSION, SUPPORTED_VERSIONS};
 use crate::writer::{BlobId, PassId};
 
 #[derive(Debug)]
@@ -49,7 +49,7 @@ impl TraceReader {
             .optional()?;
         match version {
             None => return Err(TraceError::Corrupt("missing format_version".into())),
-            Some(v) if v != FORMAT_VERSION => {
+            Some(v) if !SUPPORTED_VERSIONS.contains(&v.as_str()) => {
                 return Err(TraceError::VersionMismatch {
                     found: v,
                     supported: FORMAT_VERSION,
