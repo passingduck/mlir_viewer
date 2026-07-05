@@ -1,7 +1,7 @@
 # M4b — Op history and provenance design
 
 **Date:** 2026-07-05
-**Status:** Approved
+**Status:** Implemented and verified (2026-07-05)
 **Parent spec:** `2026-07-02-mlir-viewer-design.md` (§8–§10, §13 M4)
 **Foundation:** `2026-07-05-m4a-op-identity-capture-design.md` and schema v2
 
@@ -272,6 +272,8 @@ results, types, attributes, and region-tree Inspector remains M5.
   `TraceReader`; only unmappable index rows degrade locally.
 - Equal fingerprint candidates resolve by score, execution order, then op
   ordinal, making results reproducible.
+- Same pointer tokens with different op names and no explicit replacement event
+  are treated as address reuse, not exact identity.
 - A UID from another trace normally resolves to no anchor and returns 404. UIDs
   are explicitly trace-local, not globally portable identifiers.
 - Selecting any predecessor of a merged component returns the whole component's
@@ -299,3 +301,16 @@ results, types, attributes, and region-tree Inspector remains M5.
 - Writing durable UIDs back into trace schema v2 or a sidecar.
 - Improving C++ listener coverage or replacing ordinal op indexes.
 - Cross-trace identity, distributed trace merging, or provenance export.
+
+## 10. Verification record
+
+- `cargo test --workspace`
+- `cargo clippy --workspace --all-targets -- -D warnings`
+- `cargo fmt --check`
+- `npm test -- --run`
+- `npm run typecheck`
+- `npm run build`
+- `npx playwright test --reporter=line`
+
+The browser flow uses the Full fixture and covers Graph keyboard selection,
+exact pattern/source history, and `View IR` navigation without console errors.

@@ -1,5 +1,7 @@
 # M4b Op History and Provenance Implementation Plan
 
+**Status:** Complete — implemented and verified on 2026-07-05.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Resolve M4a identity events and fingerprint fallbacks into deterministic pipeline-wide op histories, expose them through HTTP, and add selectable Text/Graph operations with a dedicated History view.

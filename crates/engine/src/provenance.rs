@@ -713,6 +713,9 @@ pub fn resolve_function(function: &str, stages: &[TimelineStage]) -> ResolvedFun
                     side: after.side,
                     op_idx: after_idx,
                 }];
+                if nodes[from].operation.name != nodes[to].operation.name {
+                    continue;
+                }
                 if used_before.contains(&from) || inserted_after.contains(&to) {
                     continue;
                 }

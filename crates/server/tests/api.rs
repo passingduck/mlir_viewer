@@ -279,9 +279,8 @@ async fn op_history_endpoints_resolve_full_fixture_and_validate_uids() {
 
 #[tokio::test]
 async fn op_history_falls_back_to_fingerprints_without_identity_rows() {
-    let dir = tempfile::tempdir().unwrap();
-    let trace = dir.path().join("text.mlirtrace");
-    trace_format::fixture::write_demo_trace(&trace).unwrap();
+    let trace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../testdata/golden/demo-v1.mlirtrace");
     let app = server::router(&trace).unwrap();
     let (_, passes) = response_json(app.clone(), "/api/passes").await;
     let canonicalize = passes[0]["children"][0]["id"].as_i64().unwrap();

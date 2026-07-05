@@ -9,7 +9,7 @@ export default defineConfig({
   },
   webServer: {
     command:
-      'npm run build && cargo run --manifest-path ../Cargo.toml -q -p cli -- dev gen-fixture ../target/e2e-demo.mlirtrace && cargo run --manifest-path ../Cargo.toml -q -p cli -- serve ../target/e2e-demo.mlirtrace --listen 127.0.0.1:4173',
+      'export PATH="$HOME/.cargo/bin:$HOME/.rustup/toolchains/stable-aarch64-apple-darwin/bin:$PATH" && npm run build && cargo run --manifest-path ../Cargo.toml -q -p cli -- dev gen-fixture --full ../target/e2e-demo.mlirtrace && cargo run --manifest-path ../Cargo.toml -q -p cli -- serve ../target/e2e-demo.mlirtrace --listen 127.0.0.1:4173',
     url: 'http://127.0.0.1:4173',
     reuseExistingServer: false,
     timeout: 120_000,

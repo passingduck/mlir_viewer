@@ -414,3 +414,43 @@ fn duplicate_old_successors_choose_lowest_event_sequence() {
     assert_eq!(old_uid, chosen_uid);
     assert_ne!(old_uid, ignored_uid);
 }
+
+#[test]
+fn same_pointer_token_without_event_does_not_link_different_op_names() {
+    let before = "func.func @f(%arg0: i32) -> i32 {\n  %0 = arith.addi %arg0, %arg0 : i32\n  return %0 : i32\n}\n";
+    let after = "func.func @f(%arg0: i32) -> i32 {\n  %0 = arith.muli %arg0, %arg0 : i32\n  return %0 : i32\n}\n";
+    let stages = vec![TimelineStage {
+        pass_id: 1,
+        pass_name: "pointer-reuse".into(),
+        before: Some(snapshot(
+            SnapshotSide::Before,
+            1,
+            before,
+            &[("arith.addi", 99)],
+        )),
+        after: Some(snapshot(
+            SnapshotSide::After,
+            2,
+            after,
+            &[("arith.muli", 99)],
+        )),
+        events: Vec::new(),
+    }];
+    let resolved = resolve_function("f", &stages);
+    let before_idx = op_idx(stages[0].before.as_ref().unwrap(), "arith.addi");
+    let after_idx = op_idx(stages[0].after.as_ref().unwrap(), "arith.muli");
+    let before_uid = &resolved.selectable[&OccurrenceKey {
+        stage_index: 0,
+        side: SnapshotSide::Before,
+        op_idx: before_idx,
+    }]
+        .uid;
+    let after_uid = &resolved.selectable[&OccurrenceKey {
+        stage_index: 0,
+        side: SnapshotSide::After,
+        op_idx: after_idx,
+    }]
+        .uid;
+
+    assert_ne!(before_uid, after_uid);
+}
