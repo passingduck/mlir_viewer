@@ -40,3 +40,38 @@ fn node_labels_carry_op_and_result_type() {
     assert!(node.label.contains("arith.constant"));
     assert_eq!(node.line_range, (2, 2));
 }
+
+#[test]
+fn collapses_clusters_deterministically_under_budget() {
+    let text = "\
+func.func @f() {
+  %0 = arith.constant 0 : i32
+  scf.for %i = %0 to %0 step %0 {
+    %1 = arith.addi %0, %0 : i32
+    %2 = arith.muli %1, %0 : i32
+  }
+  return
+}
+";
+    let module = parse_module(text);
+    let full = extract_dataflow(&module, "f", 2000);
+    let budgeted = extract_dataflow(&module, "f", 3);
+
+    assert!(budgeted.nodes.len() <= 3);
+    assert!(
+        budgeted.nodes.iter().any(|node| node.collapsed_count > 0),
+        "expected a meta-node"
+    );
+    assert_eq!(budgeted, extract_dataflow(&module, "f", 3));
+    assert!(full.nodes.len() > budgeted.nodes.len());
+}
+
+#[test]
+fn truncates_when_budget_below_cluster_count() {
+    let text = "func.func @f() {\n  %0 = arith.constant 0 : i32\n  %1 = arith.addi %0, %0 : i32\n  %2 = arith.muli %1, %0 : i32\n}\n";
+    let module = parse_module(text);
+    let graph = extract_dataflow(&module, "f", 1);
+
+    assert!(graph.truncated);
+    assert!(graph.nodes.len() <= 1);
+}
