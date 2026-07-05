@@ -1,7 +1,9 @@
+use std::collections::{HashMap, HashSet};
+
 use serde::Serialize;
 
 use crate::diff::{ChangeClass, OpMatcher};
-use crate::model::ParsedModule;
+use crate::model::{OpIdx, ParsedModule, ParsedOp};
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct GraphNode {
@@ -37,13 +39,89 @@ pub struct DataflowGraph {
     pub truncated: bool,
 }
 
-pub fn extract_dataflow(_module: &ParsedModule, _func: &str, _budget: usize) -> DataflowGraph {
-    DataflowGraph {
-        nodes: Vec::new(),
-        edges: Vec::new(),
-        clusters: Vec::new(),
-        truncated: false,
+fn node_id(idx: OpIdx) -> String {
+    format!("op{idx}")
+}
+
+fn label(op: &ParsedOp) -> String {
+    op.result_types
+        .first()
+        .map(|result_type| format!("{} : {result_type}", op.name))
+        .unwrap_or_else(|| op.name.clone())
+}
+
+fn node_of(op: &ParsedOp, change: Option<ChangeClass>) -> GraphNode {
+    GraphNode {
+        id: node_id(op.idx),
+        label: label(op),
+        op_name: op.name.clone(),
+        line_range: (op.line_start, op.line_end),
+        cluster: op.region_path.clone(),
+        change,
+        collapsed_count: 0,
     }
+}
+
+fn dataflow_edges(module: &ParsedModule, ops: &[OpIdx]) -> Vec<GraphEdge> {
+    let mut definitions: HashMap<&str, OpIdx> = HashMap::new();
+    for &op_idx in ops {
+        for result in &module.ops[op_idx].results {
+            definitions.insert(result, op_idx);
+        }
+    }
+
+    let in_scope: HashSet<_> = ops.iter().copied().collect();
+    let mut seen = HashSet::new();
+    let mut edges = Vec::new();
+    for &use_idx in ops {
+        for operand in &module.ops[use_idx].operands {
+            let Some(&definition_idx) = definitions.get(operand.as_str()) else {
+                continue;
+            };
+            if definition_idx != use_idx
+                && in_scope.contains(&definition_idx)
+                && seen.insert((definition_idx, use_idx))
+            {
+                edges.push(GraphEdge {
+                    from: node_id(definition_idx),
+                    to: node_id(use_idx),
+                    removed: false,
+                });
+            }
+        }
+    }
+    edges
+}
+
+fn collapse_to_budget(graph: DataflowGraph, _budget: usize) -> DataflowGraph {
+    graph
+}
+
+pub fn extract_dataflow(module: &ParsedModule, func: &str, budget: usize) -> DataflowGraph {
+    let Some(scope) = module.scope(func) else {
+        return DataflowGraph {
+            nodes: Vec::new(),
+            edges: Vec::new(),
+            clusters: Vec::new(),
+            truncated: false,
+        };
+    };
+    let nodes = scope
+        .ops
+        .iter()
+        .map(|&op_idx| node_of(&module.ops[op_idx], None))
+        .collect();
+    let edges = dataflow_edges(module, &scope.ops);
+
+    collapse_to_budget(
+        DataflowGraph {
+            nodes,
+            edges,
+            clusters: Vec::new(),
+            truncated: false,
+        },
+        budget,
+    )
 }
 
 pub fn extract_dataflow_diff(
