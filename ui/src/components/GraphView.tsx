@@ -27,8 +27,12 @@ export function nextSelectableNodeId(
 
 export function GraphView({ graph, diffEnabled, onSelectOp }: GraphViewProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const [layout, setLayout] = useState<Layout | null>(null)
-  const [layingOut, setLayingOut] = useState(false)
+  const graphKey = graph
+    ? `${graph.nodes.map((node) => node.id).join(',')}|${graph.edges.map((edge) => `${edge.from}>${edge.to}`).join(',')}`
+    : ''
+  const [layoutState, setLayoutState] = useState<{ key: string; layout: Layout } | null>(null)
+  const layout = layoutState?.key === graphKey ? layoutState.layout : null
+  const layingOut = graph !== null && layout === null
   const viewRef = useRef<ViewState>({
     scale: 1,
     offsetX: 20,
@@ -39,21 +43,19 @@ export function GraphView({ graph, diffEnabled, onSelectOp }: GraphViewProps) {
 
   useEffect(() => {
     if (!graph) {
-      setLayout(null)
+      setLayoutState(null)
       return
     }
-    setLayingOut(true)
     const worker = new Worker(new URL('../graph/layout.worker.ts', import.meta.url), {
       type: 'module',
     })
     worker.onmessage = (event: MessageEvent<Layout>) => {
-      setLayout(event.data)
-      setLayingOut(false)
+      setLayoutState({ key: graphKey, layout: event.data })
       worker.terminate()
     }
     worker.postMessage({ graph })
     return () => worker.terminate()
-  }, [graph])
+  }, [graph, graphKey])
 
   const redraw = () => {
     const canvas = canvasRef.current
