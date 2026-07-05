@@ -1,10 +1,12 @@
 pub mod error;
 pub mod fixture;
+mod identity;
 pub mod reader;
 pub mod schema;
 pub mod writer;
 
 pub use error::{Result, TraceError};
+pub use identity::{IdentityEvent, IdentityKind, IdentitySource, OpIndexRow, Side};
 pub use reader::{PassNode, PassRecordView, TraceReader};
 pub use writer::{BlobId, PassId, PassRecord, TraceWriter};
 

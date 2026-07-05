@@ -5,6 +5,7 @@ use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
 use xxhash_rust::xxh3::xxh3_64;
 
 use crate::error::{Result, TraceError};
+use crate::identity::{IdentityEvent, IdentityKind, IdentitySource, OpIndexRow, Side};
 use crate::schema::{FORMAT_VERSION, SUPPORTED_VERSIONS};
 use crate::writer::{BlobId, PassId};
 
@@ -69,6 +70,103 @@ impl TraceReader {
             out.insert(k, v);
         }
         Ok(out)
+    }
+
+    fn has_table(&self, name: &str) -> Result<bool> {
+        let count: i64 = self.conn.query_row(
+            "SELECT count(*) FROM sqlite_master WHERE type='table' AND name=?1",
+            params![name],
+            |row| row.get(0),
+        )?;
+        Ok(count == 1)
+    }
+
+    pub fn op_index(&self, pass: PassId) -> Result<Vec<OpIndexRow>> {
+        if !self.has_table("op_index")? {
+            return Ok(Vec::new());
+        }
+        let mut statement = self.conn.prepare(
+            "SELECT side, ptr_token, byte_start, byte_end, op_name
+             FROM op_index WHERE pass_id = ?1 ORDER BY id",
+        )?;
+        let raw: Vec<(i64, i64, i64, i64, String)> = statement
+            .query_map(params![pass.0], |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            })?
+            .collect::<std::result::Result<_, _>>()?;
+        raw.into_iter()
+            .map(
+                |(side, ptr_token, byte_start, byte_end, op_name)| -> Result<OpIndexRow> {
+                    let side = Side::from_i64(side).ok_or_else(|| {
+                        TraceError::Corrupt(format!("invalid op_index side {side}"))
+                    })?;
+                    Ok(OpIndexRow {
+                        pass,
+                        side,
+                        ptr_token,
+                        byte_start,
+                        byte_end,
+                        op_name,
+                    })
+                },
+            )
+            .collect()
+    }
+
+    pub fn identity_events(&self, pass: PassId) -> Result<Vec<IdentityEvent>> {
+        struct RawIdentityEvent {
+            kind: String,
+            ptr_token: i64,
+            new_token: Option<i64>,
+            pattern: Option<String>,
+            source: String,
+            seq: i64,
+        }
+
+        if !self.has_table("op_identity")? {
+            return Ok(Vec::new());
+        }
+        let mut statement = self.conn.prepare(
+            "SELECT kind, ptr_token, new_token, pattern, source, seq
+             FROM op_identity WHERE pass_id = ?1 ORDER BY seq",
+        )?;
+        let raw: Vec<RawIdentityEvent> = statement
+            .query_map(params![pass.0], |row| {
+                Ok(RawIdentityEvent {
+                    kind: row.get(0)?,
+                    ptr_token: row.get(1)?,
+                    new_token: row.get(2)?,
+                    pattern: row.get(3)?,
+                    source: row.get(4)?,
+                    seq: row.get(5)?,
+                })
+            })?
+            .collect::<std::result::Result<_, _>>()?;
+        raw.into_iter()
+            .map(|raw| -> Result<IdentityEvent> {
+                let parsed_kind = IdentityKind::from_str(&raw.kind).ok_or_else(|| {
+                    TraceError::Corrupt(format!("invalid identity kind {:?}", raw.kind))
+                })?;
+                let parsed_source = IdentitySource::from_str(&raw.source).ok_or_else(|| {
+                    TraceError::Corrupt(format!("invalid identity source {:?}", raw.source))
+                })?;
+                Ok(IdentityEvent {
+                    pass,
+                    kind: parsed_kind,
+                    ptr_token: raw.ptr_token,
+                    new_token: raw.new_token,
+                    pattern: raw.pattern,
+                    source: parsed_source,
+                    seq: raw.seq,
+                })
+            })
+            .collect()
     }
 
     pub fn passes(&self) -> Result<Vec<PassNode>> {

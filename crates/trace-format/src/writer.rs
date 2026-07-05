@@ -4,6 +4,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use xxhash_rust::xxh3::xxh3_64;
 
 use crate::error::Result;
+use crate::identity::{IdentityEvent, OpIndexRow};
 use crate::schema::{FORMAT_VERSION, SCHEMA_SQL};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -89,6 +90,41 @@ impl TraceWriter {
             ],
         )?;
         Ok(PassId(self.conn.last_insert_rowid()))
+    }
+
+    pub fn write_op_index(&mut self, row: &OpIndexRow) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO op_index
+             (pass_id, side, ptr_token, byte_start, byte_end, op_name)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                row.pass.0,
+                row.side.to_i64(),
+                row.ptr_token,
+                row.byte_start,
+                row.byte_end,
+                row.op_name.as_str(),
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn write_identity_event(&mut self, event: &IdentityEvent) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO op_identity
+             (pass_id, kind, ptr_token, new_token, pattern, source, seq)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![
+                event.pass.0,
+                event.kind.as_str(),
+                event.ptr_token,
+                event.new_token,
+                event.pattern.as_deref(),
+                event.source.as_str(),
+                event.seq,
+            ],
+        )?;
+        Ok(())
     }
 
     /// Checkpoint and leave the file self-contained (no -wal/-shm sidecars),
