@@ -90,6 +90,22 @@ performs best-effort cleanup.
 - `Fidelity::Text` additionally prints the operation before and after each
   pass. Snapshots are zstd-compressed and content-addressed with XXH3-64, so a
   no-op pass reuses one blob and records `ir_changed=0`.
+- `Fidelity::Full` adds per-snapshot operation indexes and lifecycle events.
+  Rewrite-driven passes must cooperatively install the recorder listener; for
+  example, a canonicalizer can be configured as follows:
+
+  ```cpp
+  mlir::trace::TraceOptions options;
+  options.fidelity = mlir::trace::Fidelity::Full;
+  mlir::trace::TraceRecorder recorder("compile.mlirtrace", options);
+
+  mlir::GreedyRewriteConfig config;
+  config.setListener(recorder.rewriteListener());
+  passManager.addPass(mlir::createCanonicalizerPass(config));
+  ```
+
+  Direct IR mutations and passes that do not accept a rewrite listener still
+  receive text snapshots and indexes, but emit no lifecycle events.
 
 If a pass fails, its before snapshot remains readable, its after snapshot is
 null, and `meta.capture_status` is `pass_failed`. A finished trace switches out
@@ -106,5 +122,6 @@ mlir-viewer trace dump compile.mlirtrace
 ```
 
 The C++ library and Rust reader share only the versioned SQLite contract. A
-breaking schema change requires a new major `format_version`; version 1 changes
-remain additive.
+breaking schema change requires a new major `format_version`. The current
+writer emits version 2; the reader accepts versions 1 and 2 so existing traces
+remain readable.
