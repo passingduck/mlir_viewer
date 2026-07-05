@@ -41,9 +41,9 @@ pub trait OpMatcher {
 
 pub struct GreedyFingerprintMatcher;
 
-fn score(before: &OpFingerprint, after: &OpFingerprint) -> i32 {
+pub fn fingerprint_score(before: &OpFingerprint, after: &OpFingerprint) -> Option<u16> {
     if before.op_name != after.op_name {
-        return 0;
+        return None;
     }
 
     let mut score = 50;
@@ -56,7 +56,7 @@ fn score(before: &OpFingerprint, after: &OpFingerprint) -> i32 {
     if before.location.is_some() && before.location == after.location {
         score += 10;
     }
-    score
+    Some(score)
 }
 
 const MATCH_THRESHOLD: i32 = 50;
@@ -108,10 +108,11 @@ impl OpMatcher for GreedyFingerprintMatcher {
                 if after_taken[after_position] {
                     continue;
                 }
-                let candidate_score = score(
+                let candidate_score = fingerprint_score(
                     &before_fingerprints[before_position],
                     &after_fingerprints[after_position],
-                );
+                )
+                .unwrap_or(0) as i32;
                 if candidate_score >= MATCH_THRESHOLD
                     && best
                         .map(|(_, best_score)| candidate_score > best_score)

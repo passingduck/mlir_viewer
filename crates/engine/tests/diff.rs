@@ -1,7 +1,25 @@
-use engine::{diff_function, parse_module, ChangeClass, GreedyFingerprintMatcher, OpMatcher};
+use engine::{
+    diff_function, fingerprint_score, parse_module, ChangeClass, GreedyFingerprintMatcher,
+    OpFingerprint, OpMatcher,
+};
 
 fn all_ops(module: &engine::ParsedModule) -> Vec<usize> {
     (0..module.ops.len()).collect()
+}
+
+#[test]
+fn fingerprint_score_is_normalized_and_rejects_different_names() {
+    let base = OpFingerprint {
+        op_name: "arith.addi".into(),
+        result_types: vec!["i32".into()],
+        operand_count: 2,
+        location: Some("file.mlir:1:2".into()),
+    };
+    assert_eq!(fingerprint_score(&base, &base), Some(100));
+
+    let mut changed = base.clone();
+    changed.op_name = "arith.muli".into();
+    assert_eq!(fingerprint_score(&base, &changed), None);
 }
 
 #[test]
