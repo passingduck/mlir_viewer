@@ -56,7 +56,23 @@ fn assemble_statements(text: &str) -> Vec<Statement> {
 fn ssa_names(s: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     let mut chars = s.char_indices().peekable();
+    let mut in_string = false;
+    let mut escaped = false;
     while let Some((start, c)) = chars.next() {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if c == '\\' {
+                escaped = true;
+            } else if c == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+        if c == '"' {
+            in_string = true;
+            continue;
+        }
         if c != '%' {
             continue;
         }

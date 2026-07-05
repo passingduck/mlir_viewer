@@ -102,6 +102,7 @@ fn non_ascii_after_percent_does_not_panic() {
     let m = parse_module("%0 = mydialect.print {fmt = \"100%é done\"} : i32\n");
     assert_eq!(m.ops.len(), 1);
     assert_eq!(m.ops[0].results, vec!["%0"]);
+    assert_eq!(m.ops[0].operands, Vec::<String>::new());
 }
 
 #[test]
