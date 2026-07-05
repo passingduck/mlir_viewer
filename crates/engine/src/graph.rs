@@ -1,11 +1,11 @@
 use std::collections::{HashMap, HashSet};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::diff::{diff_function, ChangeClass, OpMatcher};
 use crate::model::{OpIdx, ParsedModule, ParsedOp};
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct GraphNode {
     pub id: String,
     pub label: String,
@@ -18,20 +18,20 @@ pub struct GraphNode {
     pub collapsed_count: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct GraphEdge {
     pub from: String,
     pub to: String,
     pub removed: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct GraphCluster {
     pub path: Vec<usize>,
     pub label: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct DataflowGraph {
     pub nodes: Vec<GraphNode>,
     pub edges: Vec<GraphEdge>,

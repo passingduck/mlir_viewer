@@ -140,6 +140,18 @@ pub(crate) struct DiffQuery {
     func: String,
 }
 
+#[derive(Deserialize)]
+pub(crate) struct GraphQuery {
+    pass: i64,
+    func: String,
+    #[serde(default)]
+    diff: u8,
+    budget: Option<usize>,
+}
+
+const DEFAULT_GRAPH_BUDGET: usize = 2000;
+const MAX_GRAPH_BUDGET: usize = 5000;
+
 fn open(state: &ServerState) -> Result<TraceReader, ApiError> {
     TraceReader::open(&state.trace_path).map_err(Into::into)
 }
@@ -331,6 +343,50 @@ pub(crate) async fn diff(
         engine::diff_function(&before, &after, &func, &engine::GreedyFingerprintMatcher)
     });
     Ok(Msgpack((*diff).clone()))
+}
+
+pub(crate) async fn graph(
+    State(state): State<ServerState>,
+    Query(query): Query<GraphQuery>,
+) -> Result<Msgpack<engine::DataflowGraph>, ApiError> {
+    let budget = query
+        .budget
+        .unwrap_or(DEFAULT_GRAPH_BUDGET)
+        .clamp(1, MAX_GRAPH_BUDGET);
+    let reader = open(&state)?;
+    let pass = reader.pass(PassId(query.pass))?;
+
+    if query.diff == 1 {
+        let (Some(before_id), Some(after_id)) = (pass.ir_before, pass.ir_after) else {
+            return Err(ApiError {
+                status: StatusCode::CONFLICT,
+                message: format!("pass {} is missing a before or after snapshot", query.pass),
+            });
+        };
+        let before_text = reader.blob_text(before_id)?;
+        let after_text = reader.blob_text(after_id)?;
+        let before = state.cache.parsed(before_id, &before_text);
+        let after = state.cache.parsed(after_id, &after_text);
+        return Ok(Msgpack(engine::extract_dataflow_diff(
+            &before,
+            &after,
+            &query.func,
+            budget,
+            &engine::GreedyFingerprintMatcher,
+        )));
+    }
+
+    let blob = pass
+        .ir_after
+        .or(pass.ir_before)
+        .ok_or_else(|| ApiError::not_found(format!("pass {} has no snapshot", query.pass)))?;
+    let text = reader.blob_text(blob)?;
+    let module = state.cache.parsed(blob, &text);
+    Ok(Msgpack(engine::extract_dataflow(
+        &module,
+        &query.func,
+        budget,
+    )))
 }
 
 pub(crate) async fn not_found() -> ApiError {

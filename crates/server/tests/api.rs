@@ -1,5 +1,5 @@
 use axum::body::Body;
-use engine::{ChangeClass, FunctionDiff};
+use engine::{ChangeClass, DataflowGraph, FunctionDiff};
 use http_body_util::BodyExt;
 use serde_json::Value;
 use tower::ServiceExt;
@@ -152,4 +152,42 @@ async fn diff_endpoint_no_op_pass_is_all_unchanged() {
         .changes
         .iter()
         .all(|change| change.class == ChangeClass::Unchanged));
+}
+
+#[tokio::test]
+async fn graph_endpoint_returns_nodes_and_respects_budget() {
+    let dir = tempfile::tempdir().unwrap();
+    let trace = dir.path().join("demo.mlirtrace");
+    trace_format::fixture::write_demo_trace(&trace).unwrap();
+    let app = server::router(&trace).unwrap();
+    let (_, passes) = response_json(app.clone(), "/api/passes").await;
+    let canonicalize = passes[0]["children"][0]["id"].as_i64().unwrap();
+
+    let (status, graph) = response_msgpack::<DataflowGraph>(
+        app.clone(),
+        &format!("/api/graphs/dataflow?pass={canonicalize}&func=forward&diff=0&budget=2000"),
+    )
+    .await;
+    assert_eq!(status, 200);
+    assert!(!graph.unwrap().nodes.is_empty());
+
+    let (status, diff_graph) = response_msgpack::<DataflowGraph>(
+        app.clone(),
+        &format!("/api/graphs/dataflow?pass={canonicalize}&func=forward&diff=1&budget=2000"),
+    )
+    .await;
+    assert_eq!(status, 200);
+    assert!(diff_graph
+        .unwrap()
+        .nodes
+        .iter()
+        .any(|node| node.change.is_some()));
+
+    let (status, small) = response_msgpack::<DataflowGraph>(
+        app,
+        &format!("/api/graphs/dataflow?pass={canonicalize}&func=forward&diff=0&budget=1"),
+    )
+    .await;
+    assert_eq!(status, 200);
+    assert!(small.unwrap().nodes.len() <= 1);
 }

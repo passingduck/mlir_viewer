@@ -27,6 +27,7 @@ pub fn router(trace_path: impl AsRef<Path>) -> trace_format::Result<Router> {
     };
 
     let api = Router::new()
+        .route("/graphs/dataflow", get(api::graph))
         .route("/trace/info", get(api::trace_info))
         .route("/passes", get(api::passes))
         .route("/passes/{id}/diff", get(api::diff))
