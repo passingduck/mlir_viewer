@@ -1,8 +1,8 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::model::{OpFingerprint, OpIdx, ParsedModule, ParsedOp};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ChangeClass {
     Added,
@@ -11,7 +11,7 @@ pub enum ChangeClass {
     Unchanged,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct OpChange {
     pub class: ChangeClass,
     pub before: Option<OpIdx>,
@@ -21,7 +21,7 @@ pub struct OpChange {
     pub detail: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct FunctionDiff {
     pub func: String,
     pub changes: Vec<OpChange>,

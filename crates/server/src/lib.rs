@@ -1,7 +1,6 @@
 mod api;
 mod assets;
 mod cache;
-#[allow(dead_code)] // Consumed by the M3 endpoints added in the following tasks.
 mod msgpack;
 
 use std::path::{Path, PathBuf};
@@ -30,6 +29,7 @@ pub fn router(trace_path: impl AsRef<Path>) -> trace_format::Result<Router> {
     let api = Router::new()
         .route("/trace/info", get(api::trace_info))
         .route("/passes", get(api::passes))
+        .route("/passes/{id}/diff", get(api::diff))
         .route("/passes/{id}/functions", get(api::functions))
         .route("/passes/{id}/ir", get(api::ir_page))
         .fallback(api::not_found);

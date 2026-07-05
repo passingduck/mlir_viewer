@@ -1,4 +1,5 @@
 use axum::body::Body;
+use engine::{ChangeClass, FunctionDiff};
 use http_body_util::BodyExt;
 use serde_json::Value;
 use tower::ServiceExt;
@@ -108,4 +109,47 @@ async fn functions_endpoint_lists_scopes() {
     assert!(forward["op_count"].as_u64().unwrap() >= 1);
     assert_eq!(forward["has_before"], true);
     assert_eq!(forward["has_after"], true);
+}
+
+#[tokio::test]
+async fn diff_endpoint_returns_structural_changes() {
+    let dir = tempfile::tempdir().unwrap();
+    let trace = dir.path().join("demo.mlirtrace");
+    trace_format::fixture::write_demo_trace(&trace).unwrap();
+    let app = server::router(&trace).unwrap();
+    let (_, passes) = response_json(app.clone(), "/api/passes").await;
+    let canonicalize = passes[0]["children"][0]["id"].as_i64().unwrap();
+
+    let (status, diff) = response_msgpack::<FunctionDiff>(
+        app,
+        &format!("/api/passes/{canonicalize}/diff?func=forward"),
+    )
+    .await;
+
+    assert_eq!(status, 200);
+    assert!(diff.unwrap().changes.iter().any(|change| matches!(
+        change.class,
+        ChangeClass::Removed | ChangeClass::Added | ChangeClass::Modified
+    )));
+}
+
+#[tokio::test]
+async fn diff_endpoint_no_op_pass_is_all_unchanged() {
+    let dir = tempfile::tempdir().unwrap();
+    let trace = dir.path().join("demo.mlirtrace");
+    trace_format::fixture::write_demo_trace(&trace).unwrap();
+    let app = server::router(&trace).unwrap();
+    let (_, passes) = response_json(app.clone(), "/api/passes").await;
+    let cse = passes[0]["children"][1]["id"].as_i64().unwrap();
+
+    let (status, diff) =
+        response_msgpack::<FunctionDiff>(app, &format!("/api/passes/{cse}/diff?func=forward"))
+            .await;
+
+    assert_eq!(status, 200);
+    assert!(diff
+        .unwrap()
+        .changes
+        .iter()
+        .all(|change| change.class == ChangeClass::Unchanged));
 }
