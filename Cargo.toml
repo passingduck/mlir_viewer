@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/trace-format", "crates/cli"]
+members = ["crates/trace-format", "crates/server", "crates/cli"]
 
 [workspace.dependencies]
 anyhow = "1"
@@ -9,3 +9,11 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 zstd = "0.13"
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
 clap = { version = "4", features = ["derive"] }
+axum = "0.8"
+http-body-util = "0.1"
+mime_guess = "2"
+rust-embed = "8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net"] }
+tower = { version = "0.5", features = ["util"] }

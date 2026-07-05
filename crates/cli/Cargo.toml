@@ -9,7 +9,10 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow = { workspace = true }
+axum = { workspace = true }
 clap = { workspace = true }
+server = { path = "../server" }
+tokio = { workspace = true }
 trace-format = { path = "../trace-format" }
 
 [dev-dependencies]

@@ -5,7 +5,7 @@ pub mod schema;
 pub mod writer;
 
 pub use error::{Result, TraceError};
-pub use reader::{PassNode, TraceReader};
+pub use reader::{PassNode, PassRecordView, TraceReader};
 pub use writer::{BlobId, PassId, PassRecord, TraceWriter};
 
 #[cfg(test)]
@@ -171,6 +171,31 @@ mod tests {
         assert_eq!(roots[0].children.len(), 1);
         assert_eq!(roots[0].children[0].name, "cse");
         assert_eq!(r.blob_text(before).unwrap(), "module { A }");
+    }
+
+    #[test]
+    fn reader_looks_up_passes_and_blob_sizes_by_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("t.mlirtrace");
+        let (root, before) = write_two_pass_trace(&path);
+
+        let reader = TraceReader::open(&path).unwrap();
+        let pass = reader.pass(root).unwrap();
+        assert_eq!(pass.id, root);
+        assert_eq!(pass.parent, None);
+        assert_eq!(pass.seq, 0);
+        assert_eq!(pass.name, "Pipeline");
+        assert_eq!(pass.ir_before, Some(before));
+        assert_eq!(reader.blob_size(before).unwrap(), "module { A }".len());
+
+        assert!(matches!(
+            reader.pass(crate::PassId(999_999)),
+            Err(TraceError::Corrupt(message)) if message.contains("missing pass 999999")
+        ));
+        assert!(matches!(
+            reader.blob_size(crate::BlobId(999_999)),
+            Err(TraceError::Corrupt(message)) if message.contains("missing blob 999999")
+        ));
     }
 
     #[test]

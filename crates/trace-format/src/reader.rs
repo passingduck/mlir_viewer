@@ -20,6 +20,19 @@ pub struct PassNode {
     pub children: Vec<PassNode>,
 }
 
+#[derive(Debug, Clone)]
+pub struct PassRecordView {
+    pub id: PassId,
+    pub parent: Option<PassId>,
+    pub seq: i64,
+    pub name: String,
+    pub ir_before: Option<BlobId>,
+    pub ir_after: Option<BlobId>,
+    pub start_ns: i64,
+    pub end_ns: i64,
+    pub ir_changed: bool,
+}
+
 pub struct TraceReader {
     conn: Connection,
 }
@@ -118,6 +131,45 @@ impl TraceReader {
             }
         }
         Ok(roots)
+    }
+
+    pub fn pass(&self, id: PassId) -> Result<PassRecordView> {
+        self.conn
+            .query_row(
+                "SELECT id, parent_id, seq, name, ir_before, ir_after, start_ns, end_ns,
+                        ir_changed
+                 FROM pass_execution WHERE id = ?1",
+                params![id.0],
+                |row| {
+                    Ok(PassRecordView {
+                        id: PassId(row.get(0)?),
+                        parent: row.get::<_, Option<i64>>(1)?.map(PassId),
+                        seq: row.get(2)?,
+                        name: row.get(3)?,
+                        ir_before: row.get::<_, Option<i64>>(4)?.map(BlobId),
+                        ir_after: row.get::<_, Option<i64>>(5)?.map(BlobId),
+                        start_ns: row.get(6)?,
+                        end_ns: row.get(7)?,
+                        ir_changed: row.get::<_, i64>(8)? != 0,
+                    })
+                },
+            )
+            .optional()?
+            .ok_or_else(|| TraceError::Corrupt(format!("missing pass {}", id.0)))
+    }
+
+    pub fn blob_size(&self, id: BlobId) -> Result<usize> {
+        let size: i64 = self
+            .conn
+            .query_row(
+                "SELECT size_bytes FROM ir_blob WHERE id = ?1",
+                params![id.0],
+                |row| row.get(0),
+            )
+            .optional()?
+            .ok_or_else(|| TraceError::Corrupt(format!("missing blob {}", id.0)))?;
+        usize::try_from(size)
+            .map_err(|_| TraceError::Corrupt(format!("blob {} has invalid size {size}", id.0)))
     }
 
     pub fn blob_text(&self, id: BlobId) -> Result<String> {

@@ -1,7 +1,12 @@
 /target
 /build
 /.worktrees
+/.playwright-cli
 *.mlirtrace
 !testdata/golden/*.mlirtrace
+/ui/dist/*
+!/ui/dist/.gitkeep
+/ui/node_modules
+/ui/tsconfig.tsbuildinfo
 **/CLAUDE.md
 !/CLAUDE.md
