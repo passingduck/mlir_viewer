@@ -2,6 +2,7 @@ mod api;
 mod assets;
 mod cache;
 mod msgpack;
+mod provenance;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
