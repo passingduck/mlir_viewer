@@ -126,8 +126,30 @@ pub(crate) struct IrPage {
     total_bytes: usize,
 }
 
+#[derive(Serialize)]
+pub(crate) struct FunctionDto {
+    name: String,
+    op_count: usize,
+    has_before: bool,
+    has_after: bool,
+}
+
 fn open(state: &ServerState) -> Result<TraceReader, ApiError> {
     TraceReader::open(&state.trace_path).map_err(Into::into)
+}
+
+fn parsed_side(
+    state: &ServerState,
+    reader: &TraceReader,
+    blob: Option<BlobId>,
+) -> Result<Option<std::sync::Arc<engine::ParsedModule>>, ApiError> {
+    match blob {
+        None => Ok(None),
+        Some(blob) => {
+            let text = reader.blob_text(blob)?;
+            Ok(Some(state.cache.parsed(blob, &text)))
+        }
+    }
 }
 
 fn count_passes(nodes: &[PassNode]) -> usize {
@@ -207,6 +229,48 @@ pub(crate) async fn ir_page(
         next_offset,
         total_bytes,
     }))
+}
+
+pub(crate) async fn functions(
+    State(state): State<ServerState>,
+    Path(id): Path<i64>,
+) -> Result<Json<Vec<FunctionDto>>, ApiError> {
+    let reader = open(&state)?;
+    let pass = reader.pass(PassId(id))?;
+    let before = parsed_side(&state, &reader, pass.ir_before)?;
+    let after = parsed_side(&state, &reader, pass.ir_after)?;
+    let mut functions: BTreeMap<String, (usize, bool, bool)> = BTreeMap::new();
+
+    if let Some(module) = &before {
+        for function in &module.functions {
+            let entry = functions
+                .entry(function.name.clone())
+                .or_insert((0, false, false));
+            entry.0 = entry.0.max(function.ops.len());
+            entry.1 = true;
+        }
+    }
+    if let Some(module) = &after {
+        for function in &module.functions {
+            let entry = functions
+                .entry(function.name.clone())
+                .or_insert((0, false, false));
+            entry.0 = entry.0.max(function.ops.len());
+            entry.2 = true;
+        }
+    }
+
+    Ok(Json(
+        functions
+            .into_iter()
+            .map(|(name, (op_count, has_before, has_after))| FunctionDto {
+                name,
+                op_count,
+                has_before,
+                has_after,
+            })
+            .collect(),
+    ))
 }
 
 pub(crate) async fn not_found() -> ApiError {

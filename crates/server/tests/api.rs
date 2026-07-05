@@ -86,3 +86,26 @@ async fn fixture_api_is_bounded_and_validated() {
     .await;
     assert_eq!(status, 400);
 }
+
+#[tokio::test]
+async fn functions_endpoint_lists_scopes() {
+    let dir = tempfile::tempdir().unwrap();
+    let trace = dir.path().join("demo.mlirtrace");
+    trace_format::fixture::write_demo_trace(&trace).unwrap();
+    let app = server::router(&trace).unwrap();
+
+    let (status, passes) = response_json(app.clone(), "/api/passes").await;
+    assert_eq!(status, 200);
+    let pass_id = passes[0]["children"][0]["id"].as_i64().unwrap();
+    let (status, functions) = response_json(app, &format!("/api/passes/{pass_id}/functions")).await;
+
+    assert_eq!(status, 200);
+    let functions = functions.as_array().unwrap();
+    let forward = functions
+        .iter()
+        .find(|function| function["name"] == "forward")
+        .unwrap();
+    assert!(forward["op_count"].as_u64().unwrap() >= 1);
+    assert_eq!(forward["has_before"], true);
+    assert_eq!(forward["has_after"], true);
+}

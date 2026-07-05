@@ -1,6 +1,5 @@
 mod api;
 mod assets;
-#[allow(dead_code)] // Consumed by the M3 endpoints added in the following tasks.
 mod cache;
 #[allow(dead_code)] // Consumed by the M3 endpoints added in the following tasks.
 mod msgpack;
@@ -17,7 +16,6 @@ use crate::cache::EngineCache;
 #[derive(Clone)]
 struct ServerState {
     trace_path: Arc<PathBuf>,
-    #[allow(dead_code)] // Consumed by the M3 endpoints added in the following tasks.
     cache: Arc<EngineCache>,
 }
 
@@ -32,6 +30,7 @@ pub fn router(trace_path: impl AsRef<Path>) -> trace_format::Result<Router> {
     let api = Router::new()
         .route("/trace/info", get(api::trace_info))
         .route("/passes", get(api::passes))
+        .route("/passes/{id}/functions", get(api::functions))
         .route("/passes/{id}/ir", get(api::ir_page))
         .fallback(api::not_found);
 

@@ -8,6 +8,7 @@ use trace_format::BlobId;
 #[derive(Default)]
 pub struct EngineCache {
     parsed: Mutex<HashMap<i64, Arc<ParsedModule>>>,
+    #[allow(dead_code)] // Used by the diff endpoint added in the next task.
     diffs: Mutex<HashMap<(i64, i64, String), Arc<FunctionDiff>>>,
 }
 
@@ -21,6 +22,7 @@ impl EngineCache {
         module
     }
 
+    #[allow(dead_code)] // Used by the diff endpoint added in the next task.
     pub fn diff<F: FnOnce() -> FunctionDiff>(
         &self,
         before: BlobId,
