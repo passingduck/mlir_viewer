@@ -46,6 +46,13 @@ beforeEach(() => {
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify({ pass_id: 2, side: 'after', text: 'after', offset: 0, next_offset: null, total_bytes: 5 })),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify([
+            { name: 'forward', op_count: 1, has_before: true, has_after: true },
+          ]),
+        ),
       ),
   )
 })
