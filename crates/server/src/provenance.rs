@@ -9,6 +9,8 @@ use trace_format::{
     BlobId, IdentityKind, IdentitySource, OpIndexRow, PassId, PassNode, Side, TraceReader,
 };
 
+use crate::ServerState;
+
 fn collect_leaves<'a>(
     nodes: &'a [PassNode],
     order: &mut usize,
@@ -201,6 +203,31 @@ where
         });
     }
     Ok(timeline)
+}
+
+pub(crate) fn resolved_function(
+    state: &ServerState,
+    reader: &TraceReader,
+    function: &str,
+) -> trace_format::Result<Option<Arc<engine::ResolvedFunction>>> {
+    if let Some(resolved) = state.cache.resolved(function) {
+        return Ok(Some(resolved));
+    }
+    let timeline = if let Some(timeline) = state.cache.timeline(function) {
+        timeline
+    } else {
+        let timeline = Arc::new(build_timeline(reader, function, |blob, text| {
+            state.cache.parsed(blob, text)
+        })?);
+        if timeline.is_empty() {
+            return Ok(None);
+        }
+        state.cache.put_timeline(function, timeline.clone());
+        timeline
+    };
+    let resolved = Arc::new(engine::resolve_function(function, &timeline));
+    state.cache.put_resolved(function, resolved.clone());
+    Ok(Some(resolved))
 }
 
 #[cfg(test)]

@@ -141,6 +141,12 @@ pub(crate) struct DiffQuery {
 }
 
 #[derive(Deserialize)]
+pub(crate) struct OpsQuery {
+    side: String,
+    func: String,
+}
+
+#[derive(Deserialize)]
 pub(crate) struct GraphQuery {
     pass: i64,
     func: String,
@@ -289,6 +295,67 @@ pub(crate) async fn functions(
             })
             .collect(),
     ))
+}
+
+pub(crate) async fn selectable_ops(
+    State(state): State<ServerState>,
+    Path(id): Path<i64>,
+    Query(query): Query<OpsQuery>,
+) -> Result<Msgpack<Vec<engine::SelectableOp>>, ApiError> {
+    let side = match query.side.as_str() {
+        "before" => engine::SnapshotSide::Before,
+        "after" => engine::SnapshotSide::After,
+        _ => return Err(ApiError::bad_request("side must be 'before' or 'after'")),
+    };
+    let reader = open(&state)?;
+    reader.pass(PassId(id))?;
+    let resolved = crate::provenance::resolved_function(&state, &reader, &query.func)?
+        .ok_or_else(|| ApiError::not_found(format!("function {:?} not found", query.func)))?;
+    let timeline = state
+        .cache
+        .timeline(&query.func)
+        .ok_or_else(|| ApiError::not_found(format!("function {:?} not found", query.func)))?;
+    let stage_index = timeline
+        .iter()
+        .position(|stage| stage.pass_id == id)
+        .ok_or_else(|| ApiError::not_found(format!("pass {id} is not an executable leaf")))?;
+    let snapshot_exists = match side {
+        engine::SnapshotSide::Before => timeline[stage_index].before.is_some(),
+        engine::SnapshotSide::After => timeline[stage_index].after.is_some(),
+    };
+    if !snapshot_exists {
+        return Err(ApiError::not_found(format!(
+            "pass {id} has no {} snapshot for function {:?}",
+            query.side, query.func
+        )));
+    }
+    let mut operations: Vec<_> = resolved
+        .selectable
+        .iter()
+        .filter(|(key, _)| key.stage_index == stage_index && key.side == side)
+        .map(|(_, operation)| operation.clone())
+        .collect();
+    operations.sort_by_key(|operation| (operation.line_start, operation.op_idx));
+    Ok(Msgpack(operations))
+}
+
+pub(crate) async fn op_history(
+    State(state): State<ServerState>,
+    Path(uid): Path<String>,
+) -> Result<Msgpack<engine::OpHistory>, ApiError> {
+    let uid =
+        engine::OpUid::parse(&uid).map_err(|error| ApiError::bad_request(error.to_string()))?;
+    let anchor = uid
+        .parse_anchor()
+        .map_err(|error| ApiError::bad_request(error.to_string()))?;
+    let reader = open(&state)?;
+    let resolved = crate::provenance::resolved_function(&state, &reader, &anchor.function)?
+        .ok_or_else(|| ApiError::not_found(format!("function {:?} not found", anchor.function)))?;
+    let history =
+        resolved.histories.get(&uid).cloned().ok_or_else(|| {
+            ApiError::not_found(format!("operation UID {} not found", uid.as_str()))
+        })?;
+    Ok(Msgpack(history))
 }
 
 pub(crate) async fn diff(
