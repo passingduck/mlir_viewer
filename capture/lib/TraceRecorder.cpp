@@ -4,6 +4,7 @@
 
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/Operation.h"
+#include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassInstrumentation.h"
 #include "mlir/Pass/PassManager.h"
@@ -11,6 +12,7 @@
 #include "llvm/Support/raw_ostream.h"
 
 #include <chrono>
+#include <cstdint>
 #include <map>
 #include <mutex>
 #include <optional>
@@ -45,7 +47,55 @@ struct ActivePass {
 class TraceRecorder::Impl {
 public:
   Impl(llvm::StringRef path, TraceOptions options)
-      : path(path.str()), options(options) {}
+      : path(path.str()), options(options), listener(*this) {}
+
+  class RewriteListener final : public RewriterBase::Listener {
+  public:
+    explicit RewriteListener(Impl &owner) : owner(owner) {}
+
+    void notifyOperationInserted(Operation *operation,
+                                 OpBuilder::InsertPoint previous) final {
+      (void)previous;
+      owner.recordIdentity("inserted", operation, nullptr);
+    }
+
+    void notifyOperationErased(Operation *operation) final {
+      owner.recordIdentity("erased", operation, nullptr);
+    }
+
+    void notifyOperationReplaced(Operation *operation,
+                                 Operation *replacement) final {
+      owner.recordIdentity("replaced", operation, replacement);
+    }
+
+    void notifyOperationReplaced(Operation *operation,
+                                 ValueRange replacements) final {
+      Operation *replacement = nullptr;
+      if (!replacements.empty())
+        replacement = replacements.front().getDefiningOp();
+      owner.recordIdentity("replaced", operation, replacement);
+    }
+
+    void notifyOperationModified(Operation *operation) final {
+      owner.recordIdentity("modified", operation, nullptr);
+    }
+
+    void notifyPatternBegin(const Pattern &pattern, Operation *operation) final {
+      (void)operation;
+      owner.beginPattern(pattern.getDebugName());
+    }
+
+    void notifyPatternEnd(const Pattern &pattern, LogicalResult status) final {
+      (void)pattern;
+      (void)status;
+      owner.endPattern();
+    }
+
+  private:
+    Impl &owner;
+  };
+
+  RewriterBase::Listener *rewriteListener() { return &listener; }
 
   class Instrumentation final : public PassInstrumentation {
   public:
@@ -82,7 +132,6 @@ public:
   };
 
   llvm::Error attach(PassManager &passManager, MLIRContext &context) {
-    (void)context;
     std::lock_guard<std::mutex> lock(mutex);
     if (attached)
       return llvm::createStringError(llvm::inconvertibleErrorCode(),
@@ -105,6 +154,20 @@ public:
 
     epoch = Clock::now();
     attached = true;
+    if (options.fidelity == Fidelity::Full && !context.hasActionHandler()) {
+      context.registerActionHandler(
+          [this](llvm::function_ref<void()> actionFn,
+                 const tracing::Action &action) {
+            std::string description;
+            llvm::raw_string_ostream stream(description);
+            action.print(stream);
+            stream.flush();
+            beginAction(description);
+            actionFn();
+            endAction();
+          });
+      actionContext = &context;
+    }
     passManager.addInstrumentation(std::make_unique<Instrumentation>(*this));
     return llvm::Error::success();
   }
@@ -116,6 +179,11 @@ public:
     if (!attached)
       return llvm::createStringError(llvm::inconvertibleErrorCode(),
                                      "trace recorder is not attached");
+
+    if (actionContext) {
+      actionContext->registerActionHandler(nullptr);
+      actionContext = nullptr;
+    }
 
     if (storage) {
       if (llvm::Error error = storage->finish())
@@ -132,6 +200,10 @@ public:
   }
 
 private:
+  static int64_t token(Operation *operation) {
+    return static_cast<int64_t>(reinterpret_cast<intptr_t>(operation));
+  }
+
   int64_t nowNs() const {
     return std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() -
                                                                 epoch)
@@ -183,6 +255,90 @@ private:
     return std::optional<int64_t>(blobOr->value);
   }
 
+  void writeOpIndex(int64_t passId, int side, Operation *operation) {
+    if (options.fidelity != Fidelity::Full)
+      return;
+
+    int64_t ordinal = 0;
+    operation->walk<WalkOrder::PreOrder>([&](Operation *nested) {
+      if (firstError)
+        return WalkResult::interrupt();
+      if (llvm::Error error = storage->writeOpIndex(
+              passId, side, token(nested), ordinal++, -1,
+              nested->getName().getStringRef())) {
+        rememberError(std::move(error));
+        return WalkResult::interrupt();
+      }
+      return WalkResult::advance();
+    });
+  }
+
+  void beginPattern(llvm::StringRef pattern) {
+    std::lock_guard<std::mutex> lock(mutex);
+    currentPatterns[llvm::get_threadid()].push_back(pattern.str());
+  }
+
+  void endPattern() {
+    std::lock_guard<std::mutex> lock(mutex);
+    auto patterns = currentPatterns.find(llvm::get_threadid());
+    if (patterns == currentPatterns.end() || patterns->second.empty())
+      return;
+    patterns->second.pop_back();
+    if (patterns->second.empty())
+      currentPatterns.erase(patterns);
+  }
+
+  void beginAction(llvm::StringRef action) {
+    std::lock_guard<std::mutex> lock(mutex);
+    currentActions[llvm::get_threadid()].push_back(action.str());
+  }
+
+  void endAction() {
+    std::lock_guard<std::mutex> lock(mutex);
+    auto actions = currentActions.find(llvm::get_threadid());
+    if (actions == currentActions.end() || actions->second.empty())
+      return;
+    actions->second.pop_back();
+    if (actions->second.empty())
+      currentActions.erase(actions);
+  }
+
+  void recordIdentity(llvm::StringRef kind, Operation *operation,
+                      Operation *replacement) {
+    std::lock_guard<std::mutex> lock(mutex);
+    if (options.fidelity != Fidelity::Full || finished || firstError ||
+        !storage)
+      return;
+
+    const uint64_t threadId = llvm::get_threadid();
+    auto passes = activePassIds.find(threadId);
+    if (passes == activePassIds.end() || passes->second.empty())
+      return;
+    const int64_t passId = passes->second.back();
+
+    std::optional<llvm::StringRef> pattern;
+    auto currentPattern = currentPatterns.find(threadId);
+    if (currentPattern != currentPatterns.end() &&
+        !currentPattern->second.empty())
+      pattern = currentPattern->second.back();
+    auto currentAction = currentActions.find(threadId);
+    if (!pattern && currentAction != currentActions.end() &&
+        !currentAction->second.empty())
+      pattern = currentAction->second.back();
+    const llvm::StringRef source =
+        currentAction != currentActions.end() && !currentAction->second.empty()
+            ? llvm::StringRef("action")
+            : llvm::StringRef("listener");
+
+    const std::optional<int64_t> replacementToken =
+        replacement ? std::optional<int64_t>(token(replacement))
+                    : std::nullopt;
+    if (llvm::Error error = storage->writeIdentityEvent(
+            passId, kind, token(operation), replacementToken, pattern, source,
+            nextIdentitySequence[passId]++))
+      rememberError(std::move(error));
+  }
+
   void beforePass(Pass *pass, Operation *operation) {
     std::lock_guard<std::mutex> lock(mutex);
     if (finished || firstError || !storage)
@@ -230,6 +386,10 @@ private:
              .second)
       rememberError(llvm::createStringError(
           llvm::inconvertibleErrorCode(), "pass instrumentation re-entered"));
+    if (!firstError) {
+      activePassIds[llvm::get_threadid()].push_back(passOr->value);
+      writeOpIndex(passOr->value, /*side=*/0, operation);
+    }
   }
 
   void afterPass(Pass *pass, Operation *operation, bool failed) {
@@ -254,6 +414,7 @@ private:
         return;
       }
       after = *afterOr;
+      writeOpIndex(active->second.id, /*side=*/1, operation);
     }
     const bool changed =
         failed || (active->second.before && after &&
@@ -275,6 +436,12 @@ private:
         rememberError(std::move(error));
     }
     activePasses.erase(active);
+    auto passIds = activePassIds.find(llvm::get_threadid());
+    if (passIds != activePassIds.end() && !passIds->second.empty()) {
+      passIds->second.pop_back();
+      if (passIds->second.empty())
+        activePassIds.erase(passIds);
+    }
   }
 
   std::string path;
@@ -286,8 +453,14 @@ private:
   std::optional<int64_t> rootPass;
   std::optional<int64_t> rootBefore;
   std::map<ExecutionKey, ActivePass> activePasses;
+  std::map<uint64_t, std::vector<int64_t>> activePassIds;
   std::map<uint64_t, std::vector<std::optional<int64_t>>> pipelineParents;
   std::map<int64_t, int64_t> nextSequence;
+  std::map<int64_t, int64_t> nextIdentitySequence;
+  std::map<uint64_t, std::vector<std::string>> currentPatterns;
+  std::map<uint64_t, std::vector<std::string>> currentActions;
+  RewriteListener listener;
+  MLIRContext *actionContext = nullptr;
   bool attached = false;
   bool finished = false;
 };
@@ -303,6 +476,10 @@ TraceRecorder::~TraceRecorder() {
 llvm::Error TraceRecorder::attach(PassManager &passManager,
                                   MLIRContext &context) {
   return impl->attach(passManager, context);
+}
+
+RewriterBase::Listener *TraceRecorder::rewriteListener() {
+  return impl->rewriteListener();
 }
 
 llvm::Error TraceRecorder::finish() { return impl->finish(); }

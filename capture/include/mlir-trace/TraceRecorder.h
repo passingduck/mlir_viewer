@@ -3,6 +3,7 @@
 
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/Error.h"
+#include "mlir/IR/PatternMatch.h"
 
 #include <memory>
 
@@ -27,6 +28,9 @@ public:
   TraceRecorder &operator=(const TraceRecorder &) = delete;
 
   llvm::Error attach(PassManager &passManager, MLIRContext &context);
+  /// Listener for cooperative pattern drivers such as GreedyRewriteConfig.
+  /// The pointer remains valid for the lifetime of this recorder.
+  RewriterBase::Listener *rewriteListener();
   llvm::Error finish();
 
 private:

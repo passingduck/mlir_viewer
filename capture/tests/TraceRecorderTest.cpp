@@ -1,11 +1,15 @@
 #include "mlir-trace/TraceRecorder.h"
 
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
+#include "mlir/Parser/Parser.h"
+#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "mlir/Transforms/Passes.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/Error.h"
 #include "llvm/Support/raw_ostream.h"
@@ -48,6 +52,51 @@ struct NestedCsePass
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(NestedCsePass)
   llvm::StringRef getArgument() const final { return "nested-cse"; }
   void runOnOperation() final {}
+};
+
+struct InsertProbePattern : mlir::OpRewritePattern<mlir::func::ReturnOp> {
+  using OpRewritePattern::OpRewritePattern;
+
+  mlir::LogicalResult
+  matchAndRewrite(mlir::func::ReturnOp operation,
+                  mlir::PatternRewriter &rewriter) const final {
+    if (operation->hasAttr("identity.probed"))
+      return mlir::failure();
+    rewriter.setInsertionPoint(operation);
+    rewriter.create<mlir::arith::ConstantIntOp>(operation.getLoc(), 1, 32);
+    rewriter.modifyOpInPlace(operation, [&] {
+      operation->setAttr("identity.probed",
+                         mlir::UnitAttr::get(operation.getContext()));
+    });
+    return mlir::success();
+  }
+};
+
+struct IdentityProbePass
+    : mlir::PassWrapper<IdentityProbePass,
+                        mlir::OperationPass<mlir::func::FuncOp>> {
+  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(IdentityProbePass)
+
+  explicit IdentityProbePass(mlir::RewriterBase::Listener *listener)
+      : listener(listener) {}
+  IdentityProbePass(const IdentityProbePass &other)
+      : mlir::PassWrapper<IdentityProbePass,
+                          mlir::OperationPass<mlir::func::FuncOp>>(other),
+        listener(other.listener) {}
+
+  llvm::StringRef getArgument() const final { return "identity-probe"; }
+  void runOnOperation() final {
+    mlir::RewritePatternSet patterns(&getContext());
+    patterns.add<InsertProbePattern>(&getContext());
+    mlir::GreedyRewriteConfig config;
+    config.setListener(listener);
+    if (mlir::failed(
+            mlir::applyPatternsGreedily(getOperation(), std::move(patterns),
+                                        config)))
+      signalPassFailure();
+  }
+
+  mlir::RewriterBase::Listener *listener;
 };
 
 int fail(llvm::Error error) {
@@ -95,25 +144,53 @@ mlir::OwningOpRef<mlir::ModuleOp> createModule(mlir::MLIRContext &context) {
   return mlir::OwningOpRef<mlir::ModuleOp>(module);
 }
 
+mlir::OwningOpRef<mlir::ModuleOp>
+createFoldableModule(mlir::MLIRContext &context) {
+  context.getOrLoadDialect<mlir::arith::ArithDialect>();
+  context.getOrLoadDialect<mlir::func::FuncDialect>();
+  constexpr llvm::StringLiteral source = R"mlir(
+    module {
+      func.func @f(%arg0: i32) -> i32 {
+        %c0 = arith.constant 0 : i32
+        %0 = arith.addi %arg0, %c0 : i32
+        return %0 : i32
+      }
+    })mlir";
+  return mlir::parseSourceString<mlir::ModuleOp>(source, &context);
+}
+
 int runRecorder(llvm::StringRef mode, llvm::StringRef path) {
   mlir::MLIRContext context;
-  auto module = createModule(context);
+  auto module = mode == "full" ? createFoldableModule(context)
+                               : createModule(context);
+  if (!module) {
+    llvm::errs() << "failed to create test module\n";
+    return 1;
+  }
   mlir::PassManager passManager(&context);
+  mlir::trace::TraceOptions options;
+  options.fidelity = mode == "timeline" || mode == "nested"
+                         ? mlir::trace::Fidelity::Timeline
+                         : mode == "full" ? mlir::trace::Fidelity::Full
+                                          : mlir::trace::Fidelity::Text;
+  mlir::trace::TraceRecorder recorder(path, options);
   if (mode == "failed") {
     passManager.addPass(std::make_unique<FailingPass>());
   } else if (mode == "nested") {
     passManager.addNestedPass<mlir::func::FuncOp>(
         std::make_unique<NestedCsePass>());
+  } else if (mode == "full") {
+    mlir::GreedyRewriteConfig config;
+    config.setListener(recorder.rewriteListener());
+    passManager.addNestedPass<mlir::func::FuncOp>(
+        mlir::createCanonicalizerPass(config));
+    passManager.addNestedPass<mlir::func::FuncOp>(
+        std::make_unique<IdentityProbePass>(recorder.rewriteListener()));
   } else {
     passManager.addPass(std::make_unique<CanonicalizePass>());
     passManager.addPass(std::make_unique<CsePass>());
   }
 
-  mlir::trace::TraceOptions options;
-  options.fidelity = mode == "timeline" || mode == "nested"
-                         ? mlir::trace::Fidelity::Timeline
-                         : mlir::trace::Fidelity::Text;
-  mlir::trace::TraceRecorder recorder(path, options);
   if (llvm::Error error = recorder.attach(passManager, context))
     return fail(std::move(error));
 
@@ -137,7 +214,7 @@ int main(int argc, char **argv) {
 
   const llvm::StringRef mode = argv[1];
   if (mode != "timeline" && mode != "text" && mode != "failed" &&
-      mode != "nested") {
+      mode != "nested" && mode != "full") {
     llvm::errs() << "unknown mode: " << mode << '\n';
     return 2;
   }
@@ -151,7 +228,9 @@ int main(int argc, char **argv) {
 
   bool valid = scalarEquals(
       database, "SELECT value FROM meta WHERE key='fidelity'",
-      mode == "timeline" || mode == "nested" ? "timeline" : "text");
+      mode == "timeline" || mode == "nested"
+          ? "timeline"
+          : mode == "full" ? "full" : "text");
   if (mode == "timeline") {
     valid = valid &&
             scalarEquals(database,
@@ -195,7 +274,51 @@ int main(int argc, char **argv) {
             scalarEquals(database, "SELECT count(*) FROM ir_blob", 2) &&
             scalarEquals(database,
                          "SELECT count(*) FROM ir_blob WHERE size_bytes > 0",
-                         2);
+                         2) &&
+            scalarEquals(database, "SELECT count(*) FROM op_index", 0) &&
+            scalarEquals(database, "SELECT count(*) FROM op_identity", 0);
+  } else if (mode == "full") {
+    valid = valid &&
+            scalarEquals(database,
+                         "SELECT (SELECT count(*) FROM op_index) > 0", 1) &&
+            scalarEquals(database,
+                         "SELECT (SELECT count(*) FROM op_identity) > 0", 1) &&
+            scalarEquals(database,
+                         "SELECT (SELECT count(*) FROM op_identity "
+                         "WHERE kind='inserted') > 0",
+                         1) &&
+            scalarEquals(database,
+                         "SELECT (SELECT count(*) FROM op_identity "
+                         "WHERE kind='erased') > 0",
+                         1) &&
+            scalarEquals(database,
+                         "SELECT (SELECT count(*) FROM op_identity "
+                         "WHERE kind='replaced') > 0",
+                         1) &&
+            scalarEquals(database,
+                         "SELECT (SELECT count(*) FROM op_identity "
+                         "WHERE kind='modified') > 0",
+                         1) &&
+            scalarEquals(database,
+                         "SELECT (SELECT count(*) FROM op_identity "
+                         "WHERE pattern IS NOT NULL) > 0",
+                         1) &&
+            scalarEquals(database,
+                         "SELECT (SELECT count(*) FROM op_identity event "
+                         "JOIN pass_execution pass ON event.pass_id=pass.id "
+                         "WHERE pass.name='canonicalize') > 0",
+                         1) &&
+            scalarEquals(database,
+                         "SELECT (SELECT count(*) FROM op_identity event "
+                         "JOIN pass_execution pass ON event.pass_id=pass.id "
+                         "WHERE pass.name='identity-probe' "
+                         "AND event.kind='inserted') > 0",
+                         1) &&
+            scalarEquals(database,
+                         "SELECT (SELECT count(*) FROM op_index "
+                         "WHERE byte_end=-1) = "
+                         "(SELECT count(*) FROM op_index)",
+                         1);
   } else {
     valid = valid &&
             scalarEquals(database,

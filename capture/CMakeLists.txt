@@ -116,7 +116,8 @@ if(BUILD_TESTING)
     target_compile_options(mlir-trace-recorder-test PRIVATE -fno-rtti)
   endif()
   target_link_libraries(mlir-trace-recorder-test PRIVATE
-    MLIRTrace MLIRFuncDialect SQLite::SQLite3)
+    MLIRTrace MLIRArithDialect MLIRFuncDialect MLIRParser MLIRTransforms
+    SQLite::SQLite3)
 
   add_test(NAME recorder_timeline
     COMMAND mlir-trace-recorder-test
@@ -134,6 +135,10 @@ if(BUILD_TESTING)
     COMMAND mlir-trace-recorder-test
             nested
             "${CMAKE_CURRENT_BINARY_DIR}/recorder-nested.mlirtrace")
+  add_test(NAME recorder_full
+    COMMAND mlir-trace-recorder-test
+            full
+            "${CMAKE_CURRENT_BINARY_DIR}/recorder-full.mlirtrace")
 
   add_test(NAME cpp_trace_rust_reader
     COMMAND "${CMAKE_COMMAND}"
