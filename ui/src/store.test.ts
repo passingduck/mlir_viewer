@@ -33,11 +33,29 @@ vi.mock('./api', async (importOriginal) => {
       ]),
       diff: vi.fn(async () => ({ func: 'forward', changes: [] })),
       graph: vi.fn(async () => ({ nodes: [], edges: [], clusters: [], truncated: false })),
+      selectableOps: vi.fn(async (_passId: number, side: 'before' | 'after') => [
+        {
+          uid: `op1.Zg.1.${side === 'before' ? 'b' : 'a'}.0`,
+          op_idx: 0,
+          name: 'test.op',
+          line_start: 1,
+          line_end: 1,
+        },
+      ]),
+      opHistory: vi.fn(async (uid: string) => ({
+        uid,
+        first_name: 'test.op',
+        last_name: 'test.op',
+        steps: [],
+      })),
     },
   }
 })
 
-beforeEach(() => useViewerStore.getState().reset())
+beforeEach(() => {
+  vi.clearAllMocks()
+  useViewerStore.getState().reset()
+})
 
 describe('store toggles', () => {
   it('defaults to text mode, diff off', () => {
@@ -70,5 +88,25 @@ describe('store toggles', () => {
 
     expect(api.diff).toHaveBeenCalled()
     expect(useViewerStore.getState().diff).not.toBeNull()
+  })
+
+  it('loads selectable operations for both snapshot sides', async () => {
+    await useViewerStore.getState().load()
+
+    expect(api.selectableOps).toHaveBeenCalledTimes(2)
+    expect(useViewerStore.getState().selectableBefore).toHaveLength(1)
+    expect(useViewerStore.getState().selectableAfter).toHaveLength(1)
+  })
+
+  it('selects an op, loads history, and preserves selection when viewing IR', async () => {
+    await useViewerStore.getState().load()
+    await useViewerStore.getState().selectOp('op1.Zg.1.b.0')
+
+    expect(useViewerStore.getState().viewMode).toBe('history')
+    expect(useViewerStore.getState().history?.uid).toBe('op1.Zg.1.b.0')
+
+    await useViewerStore.getState().viewHistoryStep(1)
+    expect(useViewerStore.getState().viewMode).toBe('text')
+    expect(useViewerStore.getState().selectedOpUid).toBe('op1.Zg.1.b.0')
   })
 })

@@ -59,6 +59,7 @@ export interface GraphNode {
   cluster: number[]
   change?: ChangeClass
   collapsed_count: number
+  uid?: string
 }
 
 export interface GraphEdge {
@@ -77,6 +78,52 @@ export interface DataflowGraph {
   edges: GraphEdge[]
   clusters: GraphCluster[]
   truncated: boolean
+}
+
+export interface SelectableOp {
+  uid: string
+  op_idx: number
+  name: string
+  line_start: number
+  line_end: number
+}
+
+export type SnapshotSide = 'before' | 'after'
+export type HistoryChange = 'inserted' | 'erased' | 'replaced' | 'modified' | 'unchanged'
+export type EvidenceSource = 'listener' | 'action' | 'fingerprint' | 'shared_snapshot'
+export type LinkConfidence = { kind: 'exact' } | { kind: 'inferred'; score: number }
+
+export interface HistoryEvidence {
+  seq: number
+  pattern: string | null
+  source: EvidenceSource
+}
+
+export interface OpOccurrence {
+  side: SnapshotSide
+  op_idx: number
+  name: string
+  line_start: number
+  line_end: number
+  attr_summary: string
+  location: string | null
+}
+
+export interface HistoryStep {
+  pass_id: number
+  pass_name: string
+  change: HistoryChange
+  before: OpOccurrence | null
+  after: OpOccurrence | null
+  evidence: HistoryEvidence[]
+  confidence: LinkConfidence
+}
+
+export interface OpHistory {
+  uid: string
+  first_name: string
+  last_name: string
+  steps: HistoryStep[]
 }
 
 export class ApiError extends Error {
@@ -130,4 +177,10 @@ export const api = {
     getMsgpack<DataflowGraph>(
       `/api/graphs/dataflow?pass=${passId}&func=${encodeURIComponent(func)}&diff=${diff ? 1 : 0}&budget=${budget}`,
     ),
+  selectableOps: (passId: number, side: IrSide, func: string) =>
+    getMsgpack<SelectableOp[]>(
+      `/api/passes/${passId}/ops?side=${side}&func=${encodeURIComponent(func)}`,
+    ),
+  opHistory: (uid: string) =>
+    getMsgpack<OpHistory>(`/api/ops/${encodeURIComponent(uid)}/history`),
 }

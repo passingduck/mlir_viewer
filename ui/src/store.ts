@@ -6,12 +6,14 @@ import {
   type FunctionInfo,
   type IrPage,
   type IrSide,
+  type OpHistory,
   type PassNode,
+  type SelectableOp,
   type TraceInfo,
 } from './api'
 
 type LoadState = 'idle' | 'loading' | 'ready' | 'error'
-type ViewMode = 'text' | 'graph'
+type ViewMode = 'text' | 'graph' | 'history'
 
 const GRAPH_BUDGET = 2000
 
@@ -30,12 +32,18 @@ interface ViewerState {
   functions: FunctionInfo[]
   diff: FunctionDiff | null
   graph: DataflowGraph | null
+  selectableBefore: SelectableOp[]
+  selectableAfter: SelectableOp[]
+  selectedOpUid: string | null
+  history: OpHistory | null
   load: () => Promise<void>
   selectPass: (id: number) => Promise<void>
   setViewMode: (mode: ViewMode) => void
   toggleDiff: () => void
   selectFunc: (name: string) => void
   refreshView: () => Promise<void>
+  selectOp: (uid: string) => Promise<void>
+  viewHistoryStep: (passId: number) => Promise<void>
   reset: () => void
 }
 
@@ -54,6 +62,10 @@ const initialState = {
   functions: [] as FunctionInfo[],
   diff: null as FunctionDiff | null,
   graph: null as DataflowGraph | null,
+  selectableBefore: [] as SelectableOp[],
+  selectableAfter: [] as SelectableOp[],
+  selectedOpUid: null as string | null,
+  history: null as OpHistory | null,
 }
 
 function flatten(nodes: PassNode[], output: PassNode[] = []): PassNode[] {
@@ -90,7 +102,16 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
   selectPass: async (id) => {
     const pass = get().passesById[id]
     if (!pass) return
-    set({ selectedPassId: id, before: null, after: null, diff: null, graph: null, error: null })
+    set({
+      selectedPassId: id,
+      before: null,
+      after: null,
+      diff: null,
+      graph: null,
+      selectableBefore: [],
+      selectableAfter: [],
+      error: null,
+    })
     try {
       const [before, after, functions] = await Promise.all([
         loadSide(pass, 'before'),
@@ -110,6 +131,7 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
     }
   },
   setViewMode: (viewMode) => {
+    if (viewMode === 'history' && get().selectedOpUid === null) return
     set({ viewMode })
     void get().refreshView()
   },
@@ -118,14 +140,26 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
     void get().refreshView()
   },
   selectFunc: (selectedFunc) => {
-    set({ selectedFunc })
+    set({ selectedFunc, selectedOpUid: null, history: null })
     void get().refreshView()
   },
   refreshView: async () => {
-    const { selectedPassId, selectedFunc, viewMode, diffEnabled } = get()
+    const { selectedPassId, selectedFunc, viewMode, diffEnabled, passesById } = get()
     if (selectedPassId === null || selectedFunc === null) return
 
     try {
+      const pass = passesById[selectedPassId]
+      const [selectableBefore, selectableAfter] = await Promise.all([
+        pass?.ir_before === null
+          ? Promise.resolve([])
+          : api.selectableOps(selectedPassId, 'before', selectedFunc),
+        pass?.ir_after === null
+          ? Promise.resolve([])
+          : api.selectableOps(selectedPassId, 'after', selectedFunc),
+      ])
+      if (get().selectedPassId === selectedPassId && get().selectedFunc === selectedFunc) {
+        set({ selectableBefore, selectableAfter })
+      }
       if (viewMode === 'graph') {
         const graph = await api.graph(selectedPassId, selectedFunc, diffEnabled, GRAPH_BUDGET)
         if (get().selectedPassId === selectedPassId && get().selectedFunc === selectedFunc) {
@@ -140,6 +174,21 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
     } catch (error) {
       set({ error: error instanceof Error ? error.message : String(error) })
     }
+  },
+  selectOp: async (uid) => {
+    set({ selectedOpUid: uid, history: null, viewMode: 'history', error: null })
+    try {
+      const history = await api.opHistory(uid)
+      if (get().selectedOpUid === uid) set({ history })
+    } catch (error) {
+      if (get().selectedOpUid === uid) {
+        set({ error: error instanceof Error ? error.message : String(error) })
+      }
+    }
+  },
+  viewHistoryStep: async (passId) => {
+    await get().selectPass(passId)
+    set({ viewMode: 'text' })
   },
   reset: () => set(initialState),
 }))
