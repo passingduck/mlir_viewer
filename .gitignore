@@ -1,6 +1,7 @@
 /target
 /build
 /.worktrees
+/.playwright-cli
 *.mlirtrace
 !testdata/golden/*.mlirtrace
 /ui/dist/*
