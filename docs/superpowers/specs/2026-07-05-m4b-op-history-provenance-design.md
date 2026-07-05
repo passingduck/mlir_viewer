@@ -21,7 +21,7 @@ M5 work; M4b adds only the operation summary required by History.
 | Question | Decision |
 |---|---|
 | Computation | Lazy per requested function/op, cached; no eager whole-trace index |
-| UID | Deterministic and trace-local, anchored by the earliest pass/side/op ordinal in the resolved chain |
+| UID | Deterministic, trace-local, and function-scoped, anchored by the earliest pass/side/op ordinal in the resolved component |
 | Persistence | Read-only; do not mutate the trace or create a sidecar |
 | Exact evidence | M4a `op_identity` plus matching `op_index` rows |
 | Missing evidence | Existing greedy fingerprint matcher, surfaced as inferred confidence |
@@ -99,10 +99,19 @@ names unless an explicit `replaced` event authorizes the transition.
 Multiple listener/action events for one transition are retained in sequence;
 they are not collapsed to a single pattern string.
 
+Resolved components can merge but M4b does not infer fan-out. Two `replaced`
+events sharing one `new_token` (e.g. CSE folding duplicates) join their chains
+into a single resolved component with one UID. Schema v2 cannot relate one old
+operation to multiple inserted replacements, and the fingerprint matcher is
+one-to-one, so such inserted branches remain separate components instead of
+receiving a fabricated relationship. If malformed input gives one old token
+multiple `replaced` successors, the lowest-sequence valid event wins
+deterministically.
+
 ### 3.4 UID and confidence
 
 ```rust
-pub struct OpUid(String); // "op-{pass_id}-{b|a}-{op_idx}"
+pub struct OpUid(String); // "op1.{func_b64url}.{pass_id}.{b|a}.{func_ordinal}"
 
 pub enum LinkConfidence {
     Exact,
@@ -117,10 +126,20 @@ pub enum EvidenceSource {
 }
 ```
 
-After resolving a chain, its earliest occurrence in normalized execution order
-is the UID anchor. Selecting any later occurrence therefore produces the same
-UID, including after a server restart. The UID is opaque to clients even though
-its current wire encoding is readable.
+`func_ordinal` is the anchor operation's ordinal within the function scope;
+`ParsedOp.idx` remains its existing module-global parser index. `func_b64url` is
+the unpadded URL-safe base64 encoding of the UTF-8 function symbol, so symbols
+containing punctuation cannot make UID parsing ambiguous. The `op1` prefix
+versions the wire encoding. A UID resolves to its function without a separate
+query parameter and identical ordinals in different functions never collide.
+Clients treat the UID as opaque.
+
+After resolving a component, its earliest occurrence in normalized execution
+order is the UID anchor. Selecting any later occurrence — including one on a
+branch that later merges into the component — therefore produces the same UID,
+including after a server restart. Determinism holds per viewer version: a
+future change to the fingerprint matcher may re-anchor chains whose links are
+inferred, which is acceptable because UIDs are trace-local and never persisted.
 
 `Exact` covers lifecycle events, same-token continuity within a pass, and the
 same operation in a shared immutable snapshot boundary. Shared boundaries
@@ -149,6 +168,12 @@ pub struct SelectableOp {
 
 This endpoint is the shared selection map for CodeMirror and canvas graph nodes.
 An unknown pass/snapshot/function is 404; an invalid side is 400.
+
+Because every `uid` is anchored at its component's earliest occurrence, the
+first request for a function resolves provenance across the entire pipeline for
+that function, not just the requested pass. Later requests for any pass of the
+same function are served from the caches in §5. This first-hit latency is the
+accepted cost of the lazy, no-eager-index decision in §2.
 
 ### 4.2 Operation history
 
@@ -190,6 +215,14 @@ pub struct OpOccurrence {
 `HistoryChange` is `Inserted | Erased | Replaced | Modified | Unchanged`.
 `HistoryEvidence` carries event sequence, optional pattern, and source. Malformed
 UID syntax is 400; a syntactically valid but absent anchor is 404.
+
+`steps` is ordered by execution but is not strictly linear: a pass where
+several predecessors merge yields one `HistoryStep` per predecessor, each with
+its own `before` and all sharing the same `after` occurrence and `pass_id`.
+The anchor branch's step comes first; the remaining merge steps follow in op
+ordinal order. The UI renders these as converging edges into one node. Since
+M4b does not infer fan-out (§3.3), an `after` occurrence is never duplicated
+across different successors.
 
 Version 1 and Text-only traces remain supported: both endpoints resolve through
 parsed snapshots and fingerprint links when identity tables or rows are absent.
@@ -241,12 +274,17 @@ results, types, attributes, and region-tree Inspector remains M5.
   ordinal, making results reproducible.
 - A UID from another trace normally resolves to no anchor and returns 404. UIDs
   are explicitly trace-local, not globally portable identifiers.
+- Selecting any predecessor of a merged component returns the whole component's
+  history under the shared UID; the merge pass renders one step per predecessor
+  (§4.2).
 
 ## 8. Testing
 
 1. **Engine:** exact replace/modify/insert/erase, shared boundaries, inferred
    gaps, mixed exact/inferred chains, deterministic UID, no cross-name inference,
-   invalid ordinal fallback, and stable tie-breaking.
+   invalid ordinal fallback, stable tie-breaking, and N→1 merge (two `replaced`
+   events sharing one `new_token` yield one component, one UID, and per-
+   predecessor merge steps).
 2. **Server:** Full synthetic fixture selectable ops/history, v1 fallback,
    graph UID decoration, malformed UID 400, absent UID 404, and cache eviction.
 3. **UI:** Text line selection, Graph node selection, disabled/enabled History,
