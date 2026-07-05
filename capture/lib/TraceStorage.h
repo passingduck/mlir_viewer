@@ -44,6 +44,14 @@ public:
                                    int64_t startNs, bool changed);
   llvm::Error endPass(int64_t id, std::optional<int64_t> after,
                       int64_t endNs, bool changed);
+  llvm::Error writeOpIndex(int64_t passId, int side, int64_t ptrToken,
+                           int64_t byteStart, int64_t byteEnd,
+                           llvm::StringRef opName);
+  llvm::Error writeIdentityEvent(
+      int64_t passId, llvm::StringRef kind, int64_t ptrToken,
+      std::optional<int64_t> newToken,
+      std::optional<llvm::StringRef> pattern, llvm::StringRef source,
+      int64_t seq);
   llvm::Error finish();
 
 private:

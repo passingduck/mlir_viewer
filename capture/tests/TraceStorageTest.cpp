@@ -3,6 +3,8 @@
 #include "llvm/Support/Error.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include <sqlite3.h>
+
 #include <filesystem>
 #include <optional>
 #include <string>
@@ -10,6 +12,29 @@
 using mlir::trace::detail::BlobId;
 using mlir::trace::detail::PassId;
 using mlir::trace::detail::TraceStorage;
+
+static bool scalarEquals(sqlite3 *database, const char *sql,
+                         const char *expected) {
+  sqlite3_stmt *statement = nullptr;
+  if (sqlite3_prepare_v2(database, sql, -1, &statement, nullptr) != SQLITE_OK)
+    return false;
+  const bool matches = sqlite3_step(statement) == SQLITE_ROW &&
+                       std::string(reinterpret_cast<const char *>(
+                           sqlite3_column_text(statement, 0))) == expected;
+  sqlite3_finalize(statement);
+  return matches;
+}
+
+static bool scalarEquals(sqlite3 *database, const char *sql,
+                         int64_t expected) {
+  sqlite3_stmt *statement = nullptr;
+  if (sqlite3_prepare_v2(database, sql, -1, &statement, nullptr) != SQLITE_OK)
+    return false;
+  const bool matches = sqlite3_step(statement) == SQLITE_ROW &&
+                       sqlite3_column_int64(statement, 0) == expected;
+  sqlite3_finalize(statement);
+  return matches;
+}
 
 static int fail(llvm::Error error) {
   llvm::errs() << llvm::toString(std::move(error)) << '\n';
@@ -55,6 +80,15 @@ int main(int argc, char **argv) {
   if (!child)
     return 1;
 
+  if (llvm::Error error = storage->writeOpIndex(
+          child->value, 1, 4096, 0, 12, "arith.constant"))
+    return fail(std::move(error));
+  if (llvm::Error error = storage->writeIdentityEvent(
+          child->value, "erased", 4096, std::nullopt,
+          std::optional<llvm::StringRef>(llvm::StringRef("DCE")), "listener",
+          0))
+    return fail(std::move(error));
+
   if (llvm::Error error =
           storage->endPass(child->value, after->value, 20, true))
     return fail(std::move(error));
@@ -63,6 +97,25 @@ int main(int argc, char **argv) {
     return fail(std::move(error));
   if (llvm::Error error = storage->finish())
     return fail(std::move(error));
+
+  sqlite3 *database = nullptr;
+  if (sqlite3_open_v2(argv[1], &database, SQLITE_OPEN_READONLY, nullptr) !=
+      SQLITE_OK)
+    return 1;
+  const bool valid =
+      scalarEquals(database,
+                   "SELECT value FROM meta WHERE key='format_version'", "2") &&
+      scalarEquals(database,
+                   "SELECT count(*) FROM op_index WHERE "
+                   "op_name='arith.constant'",
+                   1) &&
+      scalarEquals(database,
+                   "SELECT count(*) FROM op_identity WHERE kind='erased' "
+                   "AND source='listener'",
+                   1);
+  sqlite3_close(database);
+  if (!valid)
+    return 1;
 
   const std::string path = argv[1];
   return std::filesystem::exists(path + "-wal") ||

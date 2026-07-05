@@ -95,9 +95,12 @@ public:
 
     if (llvm::Error error = storage->setMeta("producer", "libMLIRTrace 0.1"))
       return error;
-    if (llvm::Error error = storage->setMeta(
-            "fidelity", options.fidelity == Fidelity::Timeline ? "timeline"
-                                                                 : "text"))
+    const char *fidelityName = "text";
+    if (options.fidelity == Fidelity::Timeline)
+      fidelityName = "timeline";
+    else if (options.fidelity == Fidelity::Full)
+      fidelityName = "full";
+    if (llvm::Error error = storage->setMeta("fidelity", fidelityName))
       return error;
 
     epoch = Clock::now();

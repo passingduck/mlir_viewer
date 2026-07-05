@@ -12,7 +12,7 @@ class PassManager;
 
 namespace trace {
 
-enum class Fidelity { Timeline, Text };
+enum class Fidelity { Timeline, Text, Full };
 
 struct TraceOptions {
   Fidelity fidelity = Fidelity::Text;

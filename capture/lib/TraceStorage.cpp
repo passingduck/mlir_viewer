@@ -43,6 +43,29 @@ CREATE TABLE pass_execution (
 );
 
 CREATE INDEX idx_pass_parent ON pass_execution(parent_id, seq);
+
+CREATE TABLE op_index (
+    id         INTEGER PRIMARY KEY,
+    pass_id    INTEGER NOT NULL REFERENCES pass_execution(id),
+    side       INTEGER NOT NULL,
+    ptr_token  INTEGER NOT NULL,
+    byte_start INTEGER NOT NULL,
+    byte_end   INTEGER NOT NULL,
+    op_name    TEXT NOT NULL
+);
+CREATE INDEX idx_op_index_pass ON op_index(pass_id, side);
+
+CREATE TABLE op_identity (
+    id         INTEGER PRIMARY KEY,
+    pass_id    INTEGER NOT NULL REFERENCES pass_execution(id),
+    kind       TEXT NOT NULL,
+    ptr_token  INTEGER NOT NULL,
+    new_token  INTEGER,
+    pattern    TEXT,
+    source     TEXT NOT NULL,
+    seq        INTEGER NOT NULL
+);
+CREATE INDEX idx_op_identity_pass ON op_identity(pass_id, seq);
 )sql";
 
 llvm::Error makeSqliteError(sqlite3 *database, llvm::StringRef action) {
@@ -148,9 +171,9 @@ TraceStorage::create(llvm::StringRef pathRef) {
   if (llvm::Error error = execute(database, "PRAGMA journal_mode=WAL",
                                   "enable WAL journal mode"))
     return std::move(error);
-  if (llvm::Error error = execute(database, schemaSql, "create v1 schema"))
+  if (llvm::Error error = execute(database, schemaSql, "create v2 schema"))
     return std::move(error);
-  if (llvm::Error error = storage->setMeta("format_version", "1"))
+  if (llvm::Error error = storage->setMeta("format_version", "2"))
     return std::move(error);
   return std::move(storage);
 }
@@ -282,6 +305,71 @@ llvm::Error TraceStorage::endPass(int64_t id, std::optional<int64_t> after,
     return llvm::createStringError(llvm::inconvertibleErrorCode(),
                                    "complete pass execution: unknown id %lld",
                                    static_cast<long long>(id));
+  return llvm::Error::success();
+}
+
+llvm::Error TraceStorage::writeOpIndex(int64_t passId, int side,
+                                       int64_t ptrToken, int64_t byteStart,
+                                       int64_t byteEnd,
+                                       llvm::StringRef opName) {
+  auto statementOr = Statement::prepare(
+      database,
+      "INSERT INTO op_index "
+      "(pass_id, side, ptr_token, byte_start, byte_end, op_name) "
+      "VALUES (?1, ?2, ?3, ?4, ?5, ?6)");
+  if (!statementOr)
+    return statementOr.takeError();
+  auto statement = std::move(*statementOr);
+
+  if (sqlite3_bind_int64(statement->get(), 1, passId) != SQLITE_OK ||
+      sqlite3_bind_int(statement->get(), 2, side) != SQLITE_OK ||
+      sqlite3_bind_int64(statement->get(), 3, ptrToken) != SQLITE_OK ||
+      sqlite3_bind_int64(statement->get(), 4, byteStart) != SQLITE_OK ||
+      sqlite3_bind_int64(statement->get(), 5, byteEnd) != SQLITE_OK)
+    return makeSqliteError(database, "bind op_index");
+  if (llvm::Error error =
+          bindText(database, statement->get(), 6, opName))
+    return error;
+  if (sqlite3_step(statement->get()) != SQLITE_DONE)
+    return makeSqliteError(database, "insert op_index");
+  return llvm::Error::success();
+}
+
+llvm::Error TraceStorage::writeIdentityEvent(
+    int64_t passId, llvm::StringRef kind, int64_t ptrToken,
+    std::optional<int64_t> newToken, std::optional<llvm::StringRef> pattern,
+    llvm::StringRef source, int64_t seq) {
+  auto statementOr = Statement::prepare(
+      database,
+      "INSERT INTO op_identity "
+      "(pass_id, kind, ptr_token, new_token, pattern, source, seq) "
+      "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)");
+  if (!statementOr)
+    return statementOr.takeError();
+  auto statement = std::move(*statementOr);
+
+  if (sqlite3_bind_int64(statement->get(), 1, passId) != SQLITE_OK)
+    return makeSqliteError(database, "bind identity pass");
+  if (llvm::Error error = bindText(database, statement->get(), 2, kind))
+    return error;
+  if (sqlite3_bind_int64(statement->get(), 3, ptrToken) != SQLITE_OK)
+    return makeSqliteError(database, "bind identity token");
+  if (llvm::Error error =
+          bindOptionalInt(database, statement->get(), 4, newToken))
+    return error;
+  if (pattern) {
+    if (llvm::Error error =
+            bindText(database, statement->get(), 5, *pattern))
+      return error;
+  } else if (sqlite3_bind_null(statement->get(), 5) != SQLITE_OK) {
+    return makeSqliteError(database, "bind identity pattern");
+  }
+  if (llvm::Error error = bindText(database, statement->get(), 6, source))
+    return error;
+  if (sqlite3_bind_int64(statement->get(), 7, seq) != SQLITE_OK)
+    return makeSqliteError(database, "bind identity seq");
+  if (sqlite3_step(statement->get()) != SQLITE_DONE)
+    return makeSqliteError(database, "insert op_identity");
   return llvm::Error::success();
 }
 
