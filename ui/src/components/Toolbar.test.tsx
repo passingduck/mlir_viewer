@@ -11,6 +11,8 @@ beforeEach(() => {
     functions: [{ name: 'forward', op_count: 3, has_before: true, has_after: true }],
     selectedFunc: 'forward',
     selectedPassId: 1,
+    selectedOpUid: null,
+    history: null,
   })
 })
 
@@ -34,5 +36,15 @@ describe('Toolbar', () => {
     expect(useViewerStore.getState().viewMode).toBe('graph')
     fireEvent.keyDown(window, { key: 't' })
     expect(useViewerStore.getState().viewMode).toBe('text')
+  })
+
+  it('enables History only after op selection and supports keyboard h', () => {
+    const { rerender } = render(<Toolbar diffAvailable />)
+    expect(screen.getByRole('button', { name: 'History' })).toBeDisabled()
+
+    useViewerStore.setState({ selectedOpUid: 'op1.Zg.1.b.0' })
+    rerender(<Toolbar diffAvailable />)
+    fireEvent.keyDown(window, { key: 'h' })
+    expect(useViewerStore.getState().viewMode).toBe('history')
   })
 })

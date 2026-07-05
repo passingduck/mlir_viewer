@@ -51,3 +51,28 @@ test('selects the narrowest operation covering a clicked text line', () => {
   fireEvent.mouseDown(container.querySelector('.cm-line')!)
   expect(onSelectOp).toHaveBeenCalledWith('inner')
 })
+
+test('selects the operation on the current line with Enter', () => {
+  const onSelectOp = vi.fn()
+  const operations: SelectableOp[] = [
+    {
+      uid: 'keyboard-op',
+      op_idx: 1,
+      name: 'arith.constant',
+      line_start: 1,
+      line_end: 1,
+    },
+  ]
+  const { container } = render(
+    <IrViewer
+      before={before}
+      after={null}
+      beforeOps={operations}
+      afterOps={[]}
+      onSelectOp={onSelectOp}
+    />,
+  )
+
+  fireEvent.keyDown(container.querySelector('.cm-content')!, { key: 'Enter' })
+  expect(onSelectOp).toHaveBeenCalledWith('keyboard-op')
+})

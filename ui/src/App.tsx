@@ -1,13 +1,14 @@
 import { useEffect } from 'react'
 import { IrViewer } from './components/IrViewer'
 import { GraphView } from './components/GraphView'
+import { HistoryView } from './components/HistoryView'
 import { Timeline } from './components/Timeline'
 import { Toolbar } from './components/Toolbar'
 import { useViewerStore } from './store'
 import './styles.css'
 
 export function App() {
-  const { status, error, info, roots, passesById, selectedPassId, before, after, diff, graph, diffEnabled, viewMode, selectableBefore, selectableAfter, load, selectPass, selectOp } = useViewerStore()
+  const { status, error, info, roots, passesById, selectedPassId, before, after, diff, graph, diffEnabled, viewMode, selectableBefore, selectableAfter, history, load, selectPass, selectOp, viewHistoryStep } = useViewerStore()
   const selectedPass = selectedPassId === null ? null : passesById[selectedPassId]
   const diffAvailable = Boolean(
     selectedPass && selectedPass.ir_before !== null && selectedPass.ir_after !== null,
@@ -32,8 +33,10 @@ export function App() {
           </nav>
           <div className="viewer-pane">
             <Toolbar diffAvailable={diffAvailable} />
-            {viewMode === 'graph' ? (
-              <GraphView graph={graph} diffEnabled={diffEnabled} onSelectOp={(uid) => void selectOp(uid)} />
+            {viewMode === 'history' ? (
+              <HistoryView history={history} onViewIr={viewHistoryStep} />
+            ) : viewMode === 'graph' ? (
+              <GraphView graph={graph} diffEnabled={diffEnabled} onSelectOp={selectOp} />
             ) : (
               <IrViewer
                 before={before}
@@ -41,7 +44,7 @@ export function App() {
                 diff={diffEnabled ? diff : null}
                 beforeOps={selectableBefore}
                 afterOps={selectableAfter}
-                onSelectOp={(uid) => void selectOp(uid)}
+                onSelectOp={selectOp}
               />
             )}
           </div>

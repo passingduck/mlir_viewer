@@ -13,6 +13,18 @@ export function selectableUid(graph: DataflowGraph | null, nodeId: string | null
   return graph.nodes.find((node) => node.id === nodeId)?.uid ?? null
 }
 
+export function nextSelectableNodeId(
+  graph: DataflowGraph | null,
+  currentId: string | null,
+  direction: 1 | -1,
+): string | null {
+  const ids = graph?.nodes.filter((node) => node.uid).map((node) => node.id) ?? []
+  if (ids.length === 0) return null
+  const current = ids.indexOf(currentId ?? '')
+  if (current === -1) return direction === 1 ? ids[0] : ids[ids.length - 1]
+  return ids[(current + direction + ids.length) % ids.length]
+}
+
 export function GraphView({ graph, diffEnabled, onSelectOp }: GraphViewProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [layout, setLayout] = useState<Layout | null>(null)
@@ -112,6 +124,23 @@ export function GraphView({ graph, diffEnabled, onSelectOp }: GraphViewProps) {
       if (uid) onSelectOp?.(uid)
     }
   }
+  const onKeyDown = (event: React.KeyboardEvent<HTMLCanvasElement>) => {
+    if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
+      viewRef.current.selectedId = nextSelectableNodeId(graph, viewRef.current.selectedId, 1)
+      event.preventDefault()
+      redraw()
+    } else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
+      viewRef.current.selectedId = nextSelectableNodeId(graph, viewRef.current.selectedId, -1)
+      event.preventDefault()
+      redraw()
+    } else if (event.key === 'Enter' || event.key === ' ') {
+      const uid = selectableUid(graph, viewRef.current.selectedId)
+      if (uid) {
+        event.preventDefault()
+        onSelectOp?.(uid)
+      }
+    }
+  }
 
   return (
     <section className="graph-view" aria-label="Dataflow graph">
@@ -137,6 +166,9 @@ export function GraphView({ graph, diffEnabled, onSelectOp }: GraphViewProps) {
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
+        onKeyDown={onKeyDown}
+        tabIndex={0}
+        aria-label="Dataflow graph; use arrow keys to select an operation and Enter to open history"
       />
     </section>
   )

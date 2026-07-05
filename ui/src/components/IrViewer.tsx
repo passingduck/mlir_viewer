@@ -5,6 +5,7 @@ import {
   type DecorationSet,
   EditorView,
   ViewPlugin,
+  keymap,
   lineNumbers,
 } from '@codemirror/view'
 import type { FunctionDiff, IrPage, IrSide, SelectableOp } from '../api'
@@ -81,6 +82,18 @@ function selectionExtension(operations: SelectableOp[], onSelectOp?: (uid: strin
         return true
       },
     }),
+    keymap.of([
+      {
+        key: 'Enter',
+        run(view) {
+          const line = view.state.doc.lineAt(view.state.selection.main.head).number
+          const operation = operationAtLine(operations, line)
+          if (!operation) return false
+          onSelectOp?.(operation.uid)
+          return true
+        },
+      },
+    ]),
   ]
 }
 
