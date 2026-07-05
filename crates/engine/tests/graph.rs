@@ -1,4 +1,6 @@
-use engine::{extract_dataflow, parse_module};
+use engine::{
+    extract_dataflow, extract_dataflow_diff, parse_module, ChangeClass, GreedyFingerprintMatcher,
+};
 
 #[test]
 fn builds_def_use_edges_within_function() {
@@ -74,4 +76,21 @@ fn truncates_when_budget_below_cluster_count() {
 
     assert!(graph.truncated);
     assert!(graph.nodes.len() <= 1);
+}
+
+#[test]
+fn diff_graph_tags_added_removed_and_marks_ghost() {
+    let before = parse_module(
+        "func.func @f() {\n  %0 = arith.constant 1 : i32\n  %1 = arith.addi %0, %0 : i32\n  return %1 : i32\n}\n",
+    );
+    let after = parse_module(
+        "func.func @f() {\n  %0 = arith.constant 1 : i32\n  %1 = arith.muli %0, %0 : i32\n  return %1 : i32\n}\n",
+    );
+    let graph = extract_dataflow_diff(&before, &after, "f", 2000, &GreedyFingerprintMatcher);
+    let classes: Vec<_> = graph.nodes.iter().filter_map(|node| node.change).collect();
+
+    assert!(classes.contains(&ChangeClass::Added));
+    assert!(classes.contains(&ChangeClass::Removed));
+    assert!(graph.nodes.iter().any(|node| node.id.starts_with("ghost")));
+    assert!(graph.edges.iter().any(|edge| edge.removed));
 }

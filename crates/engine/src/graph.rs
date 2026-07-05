@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use serde::Serialize;
 
-use crate::diff::{ChangeClass, OpMatcher};
+use crate::diff::{diff_function, ChangeClass, OpMatcher};
 use crate::model::{OpIdx, ParsedModule, ParsedOp};
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -251,16 +251,125 @@ pub fn extract_dataflow(module: &ParsedModule, func: &str, budget: usize) -> Dat
 }
 
 pub fn extract_dataflow_diff(
-    _before: &ParsedModule,
-    _after: &ParsedModule,
-    _func: &str,
-    _budget: usize,
-    _matcher: &dyn OpMatcher,
+    before: &ParsedModule,
+    after: &ParsedModule,
+    func: &str,
+    budget: usize,
+    matcher: &dyn OpMatcher,
 ) -> DataflowGraph {
-    DataflowGraph {
-        nodes: Vec::new(),
-        edges: Vec::new(),
-        clusters: Vec::new(),
-        truncated: false,
+    let Some(after_scope) = after.scope(func) else {
+        return extract_dataflow(before, func, budget);
+    };
+    let diff = diff_function(before, after, func, matcher);
+    let mut after_classes = HashMap::new();
+    let mut removed_before = Vec::new();
+    let mut before_to_after = HashMap::new();
+
+    for change in &diff.changes {
+        match (change.before, change.after, change.class) {
+            (before_idx, Some(after_idx), class) => {
+                after_classes.insert(after_idx, class);
+                if let Some(before_idx) = before_idx {
+                    before_to_after.insert(before_idx, after_idx);
+                }
+            }
+            (Some(before_idx), None, ChangeClass::Removed) => removed_before.push(before_idx),
+            _ => {}
+        }
     }
+
+    let mut nodes: Vec<_> = after_scope
+        .ops
+        .iter()
+        .map(|&op_idx| {
+            node_of(
+                &after.ops[op_idx],
+                Some(
+                    after_classes
+                        .get(&op_idx)
+                        .copied()
+                        .unwrap_or(ChangeClass::Unchanged),
+                ),
+            )
+        })
+        .collect();
+    let mut edges = dataflow_edges(after, &after_scope.ops);
+    let ghost_id = |before_idx: OpIdx| format!("ghost{before_idx}");
+
+    for &before_idx in &removed_before {
+        let op = &before.ops[before_idx];
+        nodes.push(GraphNode {
+            id: ghost_id(before_idx),
+            label: label(op),
+            op_name: op.name.clone(),
+            line_range: (op.line_start, op.line_end),
+            cluster: op.region_path.clone(),
+            change: Some(ChangeClass::Removed),
+            collapsed_count: 0,
+        });
+    }
+
+    let before_ops = before_scope_ops(before, func);
+    let mut before_definitions = HashMap::new();
+    for &op_idx in &before_ops {
+        for result in &before.ops[op_idx].results {
+            before_definitions.insert(result.as_str(), op_idx);
+        }
+    }
+    let endpoint = |before_idx: OpIdx| {
+        before_to_after
+            .get(&before_idx)
+            .map(|&after_idx| node_id(after_idx))
+            .unwrap_or_else(|| ghost_id(before_idx))
+    };
+
+    for &before_idx in &removed_before {
+        for operand in &before.ops[before_idx].operands {
+            if let Some(&definition_idx) = before_definitions.get(operand.as_str()) {
+                if definition_idx != before_idx {
+                    edges.push(GraphEdge {
+                        from: endpoint(definition_idx),
+                        to: ghost_id(before_idx),
+                        removed: true,
+                    });
+                }
+            }
+        }
+
+        for &user_idx in &before_ops {
+            if user_idx == before_idx {
+                continue;
+            }
+            let uses_removed_result = before.ops[user_idx].operands.iter().any(|operand| {
+                before.ops[before_idx]
+                    .results
+                    .iter()
+                    .any(|result| result == operand)
+            });
+            if uses_removed_result {
+                edges.push(GraphEdge {
+                    from: ghost_id(before_idx),
+                    to: endpoint(user_idx),
+                    removed: true,
+                });
+            }
+        }
+    }
+
+    collapse_to_budget(
+        DataflowGraph {
+            nodes,
+            edges,
+            clusters: Vec::new(),
+            truncated: false,
+        },
+        budget,
+    )
+}
+
+fn before_scope_ops(module: &ParsedModule, func: &str) -> Vec<OpIdx> {
+    module
+        .scope(func)
+        .map(|scope| scope.ops.clone())
+        .unwrap_or_default()
 }
