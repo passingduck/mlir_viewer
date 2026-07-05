@@ -7,6 +7,8 @@
 /ui/dist/*
 !/ui/dist/.gitkeep
 /ui/node_modules
+/ui/test-results
+/ui/playwright-report
 /ui/tsconfig.tsbuildinfo
 **/CLAUDE.md
 !/CLAUDE.md

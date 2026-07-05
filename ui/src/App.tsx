@@ -1,11 +1,17 @@
 import { useEffect } from 'react'
 import { IrViewer } from './components/IrViewer'
+import { GraphView } from './components/GraphView'
 import { Timeline } from './components/Timeline'
+import { Toolbar } from './components/Toolbar'
 import { useViewerStore } from './store'
 import './styles.css'
 
 export function App() {
-  const { status, error, info, roots, selectedPassId, before, after, load, selectPass } = useViewerStore()
+  const { status, error, info, roots, passesById, selectedPassId, before, after, diff, graph, diffEnabled, viewMode, load, selectPass } = useViewerStore()
+  const selectedPass = selectedPassId === null ? null : passesById[selectedPassId]
+  const diffAvailable = Boolean(
+    selectedPass && selectedPass.ir_before !== null && selectedPass.ir_after !== null,
+  )
   useEffect(() => {
     void load()
   }, [load])
@@ -24,7 +30,14 @@ export function App() {
           <nav aria-label="Pass timeline">
             <Timeline roots={roots} selectedPassId={selectedPassId} onSelect={(id) => void selectPass(id)} />
           </nav>
-          <IrViewer before={before} after={after} />
+          <div className="viewer-pane">
+            <Toolbar diffAvailable={diffAvailable} />
+            {viewMode === 'graph' ? (
+              <GraphView graph={graph} diffEnabled={diffEnabled} />
+            ) : (
+              <IrViewer before={before} after={after} diff={diffEnabled ? diff : null} />
+            )}
+          </div>
         </main>
       )}
       {error && status !== 'error' && <div className="toast" role="alert">{error}</div>}

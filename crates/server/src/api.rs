@@ -7,6 +7,7 @@ use axum::Json;
 use serde::{Deserialize, Serialize};
 use trace_format::{BlobId, PassId, PassNode, TraceError, TraceReader};
 
+use crate::msgpack::Msgpack;
 use crate::ServerState;
 
 const DEFAULT_PAGE_BYTES: usize = 256 * 1024;
@@ -126,8 +127,47 @@ pub(crate) struct IrPage {
     total_bytes: usize,
 }
 
+#[derive(Serialize)]
+pub(crate) struct FunctionDto {
+    name: String,
+    op_count: usize,
+    has_before: bool,
+    has_after: bool,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct DiffQuery {
+    func: String,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct GraphQuery {
+    pass: i64,
+    func: String,
+    #[serde(default)]
+    diff: u8,
+    budget: Option<usize>,
+}
+
+const DEFAULT_GRAPH_BUDGET: usize = 2000;
+const MAX_GRAPH_BUDGET: usize = 5000;
+
 fn open(state: &ServerState) -> Result<TraceReader, ApiError> {
     TraceReader::open(&state.trace_path).map_err(Into::into)
+}
+
+fn parsed_side(
+    state: &ServerState,
+    reader: &TraceReader,
+    blob: Option<BlobId>,
+) -> Result<Option<std::sync::Arc<engine::ParsedModule>>, ApiError> {
+    match blob {
+        None => Ok(None),
+        Some(blob) => {
+            let text = reader.blob_text(blob)?;
+            Ok(Some(state.cache.parsed(blob, &text)))
+        }
+    }
 }
 
 fn count_passes(nodes: &[PassNode]) -> usize {
@@ -207,6 +247,146 @@ pub(crate) async fn ir_page(
         next_offset,
         total_bytes,
     }))
+}
+
+pub(crate) async fn functions(
+    State(state): State<ServerState>,
+    Path(id): Path<i64>,
+) -> Result<Json<Vec<FunctionDto>>, ApiError> {
+    let reader = open(&state)?;
+    let pass = reader.pass(PassId(id))?;
+    let before = parsed_side(&state, &reader, pass.ir_before)?;
+    let after = parsed_side(&state, &reader, pass.ir_after)?;
+    let mut functions: BTreeMap<String, (usize, bool, bool)> = BTreeMap::new();
+
+    if let Some(module) = &before {
+        for function in &module.functions {
+            let entry = functions
+                .entry(function.name.clone())
+                .or_insert((0, false, false));
+            entry.0 = entry.0.max(function.ops.len());
+            entry.1 = true;
+        }
+    }
+    if let Some(module) = &after {
+        for function in &module.functions {
+            let entry = functions
+                .entry(function.name.clone())
+                .or_insert((0, false, false));
+            entry.0 = entry.0.max(function.ops.len());
+            entry.2 = true;
+        }
+    }
+
+    Ok(Json(
+        functions
+            .into_iter()
+            .map(|(name, (op_count, has_before, has_after))| FunctionDto {
+                name,
+                op_count,
+                has_before,
+                has_after,
+            })
+            .collect(),
+    ))
+}
+
+pub(crate) async fn diff(
+    State(state): State<ServerState>,
+    Path(id): Path<i64>,
+    Query(query): Query<DiffQuery>,
+) -> Result<Msgpack<engine::FunctionDiff>, ApiError> {
+    let reader = open(&state)?;
+    let pass = reader.pass(PassId(id))?;
+    let (Some(before_id), Some(after_id)) = (pass.ir_before, pass.ir_after) else {
+        return Err(ApiError {
+            status: StatusCode::CONFLICT,
+            message: format!("pass {id} is missing a before or after snapshot"),
+        });
+    };
+
+    if before_id == after_id {
+        let text = reader.blob_text(after_id)?;
+        let module = state.cache.parsed(after_id, &text);
+        let changes = module
+            .scope(&query.func)
+            .map(|scope| {
+                scope
+                    .ops
+                    .iter()
+                    .map(|&op_idx| {
+                        let op = &module.ops[op_idx];
+                        engine::OpChange {
+                            class: engine::ChangeClass::Unchanged,
+                            before: Some(op_idx),
+                            after: Some(op_idx),
+                            before_lines: Some((op.line_start, op.line_end)),
+                            after_lines: Some((op.line_start, op.line_end)),
+                            detail: Vec::new(),
+                        }
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        return Ok(Msgpack(engine::FunctionDiff {
+            func: query.func,
+            changes,
+        }));
+    }
+
+    let before_text = reader.blob_text(before_id)?;
+    let after_text = reader.blob_text(after_id)?;
+    let before = state.cache.parsed(before_id, &before_text);
+    let after = state.cache.parsed(after_id, &after_text);
+    let func = query.func;
+    let diff = state.cache.diff(before_id, after_id, &func, || {
+        engine::diff_function(&before, &after, &func, &engine::GreedyFingerprintMatcher)
+    });
+    Ok(Msgpack((*diff).clone()))
+}
+
+pub(crate) async fn graph(
+    State(state): State<ServerState>,
+    Query(query): Query<GraphQuery>,
+) -> Result<Msgpack<engine::DataflowGraph>, ApiError> {
+    let budget = query
+        .budget
+        .unwrap_or(DEFAULT_GRAPH_BUDGET)
+        .clamp(1, MAX_GRAPH_BUDGET);
+    let reader = open(&state)?;
+    let pass = reader.pass(PassId(query.pass))?;
+
+    if query.diff == 1 {
+        let (Some(before_id), Some(after_id)) = (pass.ir_before, pass.ir_after) else {
+            return Err(ApiError {
+                status: StatusCode::CONFLICT,
+                message: format!("pass {} is missing a before or after snapshot", query.pass),
+            });
+        };
+        let before_text = reader.blob_text(before_id)?;
+        let after_text = reader.blob_text(after_id)?;
+        let before = state.cache.parsed(before_id, &before_text);
+        let after = state.cache.parsed(after_id, &after_text);
+        return Ok(Msgpack(engine::extract_dataflow_diff(
+            &before,
+            &after,
+            &query.func,
+            budget,
+            &engine::GreedyFingerprintMatcher,
+        )));
+    }
+
+    let blob = pass
+        .ir_after
+        .or(pass.ir_before)
+        .ok_or_else(|| ApiError::not_found(format!("pass {} has no snapshot", query.pass)))?;
+    let text = reader.blob_text(blob)?;
+    let module = state.cache.parsed(blob, &text);
+    Ok(Msgpack(engine::extract_dataflow(
+        &module,
+        &query.func,
+        budget,
+    )))
 }
 
 pub(crate) async fn not_found() -> ApiError {
