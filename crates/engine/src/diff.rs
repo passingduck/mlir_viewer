@@ -1,6 +1,6 @@
 use serde::Serialize;
 
-use crate::model::{OpFingerprint, OpIdx, ParsedModule};
+use crate::model::{OpFingerprint, OpIdx, ParsedModule, ParsedOp};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -137,14 +137,123 @@ impl OpMatcher for GreedyFingerprintMatcher {
     }
 }
 
+fn detail(before: &ParsedOp, after: &ParsedOp) -> Vec<String> {
+    let mut details = Vec::new();
+    if before.result_types != after.result_types {
+        details.push(format!(
+            "result type {:?} → {:?}",
+            before.result_types, after.result_types
+        ));
+    }
+    if before.operands.len() != after.operands.len() {
+        details.push(format!(
+            "operand count {} → {}",
+            before.operands.len(),
+            after.operands.len()
+        ));
+    }
+    if before.attr_summary != after.attr_summary {
+        details.push(format!(
+            "attributes {:?} → {:?}",
+            before.attr_summary, after.attr_summary
+        ));
+    }
+    details
+}
+
 pub fn diff_function(
-    _before: &ParsedModule,
-    _after: &ParsedModule,
+    before: &ParsedModule,
+    after: &ParsedModule,
     func: &str,
-    _matcher: &dyn OpMatcher,
+    matcher: &dyn OpMatcher,
 ) -> FunctionDiff {
-    FunctionDiff {
+    let empty = FunctionDiff {
         func: func.to_string(),
         changes: Vec::new(),
+    };
+    let (Some(before_scope), Some(after_scope)) = (before.scope(func), after.scope(func)) else {
+        return empty;
+    };
+    let pairs = matcher.match_ops(before, &before_scope.ops, after, &after_scope.ops);
+    let mut by_after = std::collections::HashMap::new();
+    let mut removed = Vec::new();
+
+    for (before_idx, after_idx) in pairs {
+        match (before_idx, after_idx) {
+            (Some(before_idx), Some(after_idx)) => {
+                let before_op = &before.ops[before_idx];
+                let after_op = &after.ops[after_idx];
+                let details = detail(before_op, after_op);
+                let class = if details.is_empty() {
+                    ChangeClass::Unchanged
+                } else {
+                    ChangeClass::Modified
+                };
+                by_after.insert(
+                    after_idx,
+                    OpChange {
+                        class,
+                        before: Some(before_idx),
+                        after: Some(after_idx),
+                        before_lines: Some((before_op.line_start, before_op.line_end)),
+                        after_lines: Some((after_op.line_start, after_op.line_end)),
+                        detail: details,
+                    },
+                );
+            }
+            (None, Some(after_idx)) => {
+                let after_op = &after.ops[after_idx];
+                by_after.insert(
+                    after_idx,
+                    OpChange {
+                        class: ChangeClass::Added,
+                        before: None,
+                        after: Some(after_idx),
+                        before_lines: None,
+                        after_lines: Some((after_op.line_start, after_op.line_end)),
+                        detail: Vec::new(),
+                    },
+                );
+            }
+            (Some(before_idx), None) => {
+                let before_op = &before.ops[before_idx];
+                removed.push(OpChange {
+                    class: ChangeClass::Removed,
+                    before: Some(before_idx),
+                    after: None,
+                    before_lines: Some((before_op.line_start, before_op.line_end)),
+                    after_lines: None,
+                    detail: Vec::new(),
+                });
+            }
+            (None, None) => {}
+        }
+    }
+
+    removed.sort_by_key(|change| change.before.expect("removed op has before index"));
+    let mut removed = removed.into_iter().peekable();
+    let mut changes = Vec::new();
+    let mut after_order = after_scope.ops.clone();
+    after_order.sort_unstable();
+
+    for after_idx in after_order {
+        if let Some(change) = by_after.remove(&after_idx) {
+            if let Some(this_before) = change.before {
+                while removed
+                    .peek()
+                    .map(|change| change.before.expect("removed op has before index") < this_before)
+                    .unwrap_or(false)
+                {
+                    changes.push(removed.next().expect("peeked above"));
+                }
+            }
+            changes.push(change);
+        }
+    }
+    changes.extend(removed);
+
+    FunctionDiff {
+        func: func.to_string(),
+        changes,
     }
 }

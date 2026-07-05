@@ -1,4 +1,4 @@
-use engine::{parse_module, GreedyFingerprintMatcher, OpMatcher};
+use engine::{diff_function, parse_module, ChangeClass, GreedyFingerprintMatcher, OpMatcher};
 
 fn all_ops(module: &engine::ParsedModule) -> Vec<usize> {
     (0..module.ops.len()).collect()
@@ -54,4 +54,42 @@ fn never_matches_across_different_op_names() {
     assert!(pairs
         .iter()
         .any(|(before_idx, after_idx)| before_idx.is_none() && after_idx.is_some()));
+}
+
+#[test]
+fn classifies_added_removed_modified_unchanged() {
+    let before = parse_module(
+        "func.func @f() {\n  %0 = arith.constant 1 : i32\n  %1 = arith.addi %0, %0 : i32\n  return %1 : i32\n}\n",
+    );
+    let after = parse_module(
+        "func.func @f() {\n  %0 = arith.constant 1 : i32\n  %1 = arith.muli %0, %0 : i32\n  %2 = arith.subi %1, %0 : i32\n  return %1 : i32\n}\n",
+    );
+    let diff = diff_function(&before, &after, "f", &GreedyFingerprintMatcher);
+    let classes: Vec<_> = diff.changes.iter().map(|change| change.class).collect();
+
+    assert!(classes.contains(&ChangeClass::Unchanged));
+    assert!(classes.contains(&ChangeClass::Removed));
+    assert!(classes.contains(&ChangeClass::Added));
+}
+
+#[test]
+fn modified_op_reports_detail_and_both_line_ranges() {
+    let before = parse_module("func.func @f() {\n  %0 = arith.constant 1 : i32\n}\n");
+    let after = parse_module("func.func @f() {\n  %0 = arith.constant 1 : i64\n}\n");
+    let diff = diff_function(&before, &after, "f", &GreedyFingerprintMatcher);
+    let modified = diff
+        .changes
+        .iter()
+        .find(|change| change.class == ChangeClass::Modified)
+        .unwrap();
+
+    assert!(modified.before_lines.is_some() && modified.after_lines.is_some());
+    assert!(modified.detail.iter().any(|detail| detail.contains("type")));
+}
+
+#[test]
+fn unknown_function_yields_empty_diff() {
+    let module = parse_module("func.func @f() {\n  return\n}\n");
+    let diff = diff_function(&module, &module, "nope", &GreedyFingerprintMatcher);
+    assert!(diff.changes.is_empty());
 }
