@@ -14,7 +14,7 @@ pub use graph::{
 pub use model::{FunctionScope, OpFingerprint, OpIdx, ParsedModule, ParsedOp};
 pub use parser::parse_module;
 pub use provenance::{
-    EvidenceSource, HistoryChange, HistoryEvidence, HistoryStep, LinkConfidence,
+    resolve_function, EvidenceSource, HistoryChange, HistoryEvidence, HistoryStep, LinkConfidence,
     NormalizedIdentityEvent, NormalizedIdentityKind, OccurrenceKey, OpAnchor, OpHistory,
     OpOccurrence, OpUid, ResolvedFunction, SelectableOp, SnapshotOps, SnapshotSide, TimelineStage,
     UidError,
