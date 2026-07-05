@@ -1,5 +1,6 @@
 use engine::{
     extract_dataflow, extract_dataflow_diff, parse_module, ChangeClass, GreedyFingerprintMatcher,
+    SnapshotSide,
 };
 
 #[test]
@@ -41,6 +42,9 @@ fn node_labels_carry_op_and_result_type() {
     assert_eq!(node.op_name, "arith.constant");
     assert!(node.label.contains("arith.constant"));
     assert_eq!(node.line_range, (2, 2));
+    assert!(node.op_idx.is_some());
+    assert_eq!(node.provenance_side, None);
+    assert_eq!(node.uid, None);
 }
 
 #[test]
@@ -92,5 +96,15 @@ fn diff_graph_tags_added_removed_and_marks_ghost() {
     assert!(classes.contains(&ChangeClass::Added));
     assert!(classes.contains(&ChangeClass::Removed));
     assert!(graph.nodes.iter().any(|node| node.id.starts_with("ghost")));
+    assert!(graph.nodes.iter().any(|node| {
+        node.id.starts_with("ghost")
+            && node.op_idx.is_some()
+            && node.provenance_side == Some(SnapshotSide::Before)
+    }));
+    assert!(graph.nodes.iter().any(|node| {
+        node.id.starts_with("op")
+            && node.op_idx.is_some()
+            && node.provenance_side == Some(SnapshotSide::After)
+    }));
     assert!(graph.edges.iter().any(|edge| edge.removed));
 }

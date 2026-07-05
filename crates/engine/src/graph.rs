@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::diff::{diff_function, ChangeClass, OpMatcher};
 use crate::model::{OpIdx, ParsedModule, ParsedOp};
+use crate::SnapshotSide;
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct GraphNode {
@@ -16,6 +17,12 @@ pub struct GraphNode {
     pub change: Option<ChangeClass>,
     /// >0 for a collapsed cluster meta-node: how many ops it hides.
     pub collapsed_count: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub uid: Option<String>,
+    #[serde(skip)]
+    pub op_idx: Option<OpIdx>,
+    #[serde(skip)]
+    pub provenance_side: Option<SnapshotSide>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
@@ -50,7 +57,11 @@ fn label(op: &ParsedOp) -> String {
         .unwrap_or_else(|| op.name.clone())
 }
 
-fn node_of(op: &ParsedOp, change: Option<ChangeClass>) -> GraphNode {
+fn node_of(
+    op: &ParsedOp,
+    change: Option<ChangeClass>,
+    provenance_side: Option<SnapshotSide>,
+) -> GraphNode {
     GraphNode {
         id: node_id(op.idx),
         label: label(op),
@@ -59,6 +70,9 @@ fn node_of(op: &ParsedOp, change: Option<ChangeClass>) -> GraphNode {
         cluster: op.region_path.clone(),
         change,
         collapsed_count: 0,
+        uid: None,
+        op_idx: Some(op.idx),
+        provenance_side,
     }
 }
 
@@ -161,6 +175,9 @@ fn collapse_cluster(graph: DataflowGraph, path: &[usize]) -> DataflowGraph {
         cluster: path.to_vec(),
         change: None,
         collapsed_count: hidden.len(),
+        uid: None,
+        op_idx: None,
+        provenance_side: None,
     });
 
     let remap = |id: &str| {
@@ -235,7 +252,7 @@ pub fn extract_dataflow(module: &ParsedModule, func: &str, budget: usize) -> Dat
     let nodes = scope
         .ops
         .iter()
-        .map(|&op_idx| node_of(&module.ops[op_idx], None))
+        .map(|&op_idx| node_of(&module.ops[op_idx], None, None))
         .collect();
     let edges = dataflow_edges(module, &scope.ops);
 
@@ -290,6 +307,7 @@ pub fn extract_dataflow_diff(
                         .copied()
                         .unwrap_or(ChangeClass::Unchanged),
                 ),
+                Some(SnapshotSide::After),
             )
         })
         .collect();
@@ -306,6 +324,9 @@ pub fn extract_dataflow_diff(
             cluster: op.region_path.clone(),
             change: Some(ChangeClass::Removed),
             collapsed_count: 0,
+            uid: None,
+            op_idx: Some(op.idx),
+            provenance_side: Some(SnapshotSide::Before),
         });
     }
 

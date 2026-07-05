@@ -158,6 +158,40 @@ pub(crate) struct GraphQuery {
 const DEFAULT_GRAPH_BUDGET: usize = 2000;
 const MAX_GRAPH_BUDGET: usize = 5000;
 
+fn decorate_graph_uids(
+    state: &ServerState,
+    reader: &TraceReader,
+    pass_id: i64,
+    function: &str,
+    default_side: engine::SnapshotSide,
+    graph: &mut engine::DataflowGraph,
+) -> Result<(), ApiError> {
+    let Some(resolved) = crate::provenance::resolved_function(state, reader, function)? else {
+        return Ok(());
+    };
+    let Some(timeline) = state.cache.timeline(function) else {
+        return Ok(());
+    };
+    let Some(stage_index) = timeline.iter().position(|stage| stage.pass_id == pass_id) else {
+        return Ok(());
+    };
+    for node in &mut graph.nodes {
+        let (Some(op_idx), side) = (node.op_idx, node.provenance_side.unwrap_or(default_side))
+        else {
+            continue;
+        };
+        node.uid = resolved
+            .selectable
+            .get(&engine::OccurrenceKey {
+                stage_index,
+                side,
+                op_idx,
+            })
+            .map(|operation| operation.uid.as_str().to_string());
+    }
+    Ok(())
+}
+
 fn open(state: &ServerState) -> Result<TraceReader, ApiError> {
     TraceReader::open(&state.trace_path).map_err(Into::into)
 }
@@ -434,26 +468,39 @@ pub(crate) async fn graph(
         let after_text = reader.blob_text(after_id)?;
         let before = state.cache.parsed(before_id, &before_text);
         let after = state.cache.parsed(after_id, &after_text);
-        return Ok(Msgpack(engine::extract_dataflow_diff(
+        let mut graph = engine::extract_dataflow_diff(
             &before,
             &after,
             &query.func,
             budget,
             &engine::GreedyFingerprintMatcher,
-        )));
+        );
+        decorate_graph_uids(
+            &state,
+            &reader,
+            query.pass,
+            &query.func,
+            engine::SnapshotSide::After,
+            &mut graph,
+        )?;
+        return Ok(Msgpack(graph));
     }
 
-    let blob = pass
-        .ir_after
-        .or(pass.ir_before)
-        .ok_or_else(|| ApiError::not_found(format!("pass {} has no snapshot", query.pass)))?;
+    let (blob, side) = if let Some(blob) = pass.ir_after {
+        (blob, engine::SnapshotSide::After)
+    } else if let Some(blob) = pass.ir_before {
+        (blob, engine::SnapshotSide::Before)
+    } else {
+        return Err(ApiError::not_found(format!(
+            "pass {} has no snapshot",
+            query.pass
+        )));
+    };
     let text = reader.blob_text(blob)?;
     let module = state.cache.parsed(blob, &text);
-    Ok(Msgpack(engine::extract_dataflow(
-        &module,
-        &query.func,
-        budget,
-    )))
+    let mut graph = engine::extract_dataflow(&module, &query.func, budget);
+    decorate_graph_uids(&state, &reader, query.pass, &query.func, side, &mut graph)?;
+    Ok(Msgpack(graph))
 }
 
 pub(crate) async fn not_found() -> ApiError {

@@ -172,7 +172,9 @@ async fn graph_endpoint_returns_nodes_and_respects_budget() {
     )
     .await;
     assert_eq!(status, 200);
-    assert!(!graph.unwrap().nodes.is_empty());
+    let graph = graph.unwrap();
+    assert!(!graph.nodes.is_empty());
+    assert!(graph.nodes.iter().any(|node| node.uid.is_some()));
 
     let (status, diff_graph) = response_msgpack::<DataflowGraph>(
         app.clone(),
