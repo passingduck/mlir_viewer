@@ -5,7 +5,9 @@ edition = "2021"
 
 [dependencies]
 axum = { workspace = true }
+engine = { path = "../engine" }
 mime_guess = { workspace = true }
+rmp-serde = { workspace = true }
 rust-embed = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -13,6 +15,7 @@ trace-format = { path = "../trace-format" }
 
 [dev-dependencies]
 http-body-util = { workspace = true }
+rmp-serde = { workspace = true }
 tempfile = "3"
 tokio = { workspace = true }
 tower = { workspace = true }

@@ -1,5 +1,9 @@
 mod api;
 mod assets;
+#[allow(dead_code)] // Consumed by the M3 endpoints added in the following tasks.
+mod cache;
+#[allow(dead_code)] // Consumed by the M3 endpoints added in the following tasks.
+mod msgpack;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -8,9 +12,13 @@ use axum::routing::get;
 use axum::Router;
 use trace_format::TraceReader;
 
+use crate::cache::EngineCache;
+
 #[derive(Clone)]
 struct ServerState {
     trace_path: Arc<PathBuf>,
+    #[allow(dead_code)] // Consumed by the M3 endpoints added in the following tasks.
+    cache: Arc<EngineCache>,
 }
 
 pub fn router(trace_path: impl AsRef<Path>) -> trace_format::Result<Router> {
@@ -18,6 +26,7 @@ pub fn router(trace_path: impl AsRef<Path>) -> trace_format::Result<Router> {
     TraceReader::open(&trace_path)?;
     let state = ServerState {
         trace_path: Arc::new(trace_path),
+        cache: Arc::new(EngineCache::default()),
     };
 
     let api = Router::new()
@@ -30,4 +39,29 @@ pub fn router(trace_path: impl AsRef<Path>) -> trace_format::Result<Router> {
         .nest("/api", api)
         .fallback(assets::serve)
         .with_state(state))
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::http::header;
+    use axum::response::IntoResponse;
+    use http_body_util::BodyExt;
+    use serde::{Deserialize, Serialize};
+
+    #[derive(Debug, PartialEq, Deserialize, Serialize)]
+    struct Payload {
+        value: u32,
+    }
+
+    #[tokio::test]
+    async fn msgpack_response_round_trips_named_fields() {
+        let response = crate::msgpack::Msgpack(Payload { value: 7 }).into_response();
+        assert_eq!(
+            response.headers()[header::CONTENT_TYPE],
+            "application/msgpack"
+        );
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let decoded: Payload = rmp_serde::from_slice(&bytes).unwrap();
+        assert_eq!(decoded, Payload { value: 7 });
+    }
 }

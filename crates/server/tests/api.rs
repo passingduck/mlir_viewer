@@ -19,6 +19,26 @@ async fn response_json(app: axum::Router, uri: &str) -> (axum::http::StatusCode,
     (status, json)
 }
 
+#[allow(dead_code)]
+async fn response_msgpack<T: serde::de::DeserializeOwned>(
+    app: axum::Router,
+    uri: &str,
+) -> (axum::http::StatusCode, Option<T>) {
+    let response = app
+        .oneshot(
+            axum::http::Request::builder()
+                .uri(uri)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status = response.status();
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let value = rmp_serde::from_slice(&bytes).ok();
+    (status, value)
+}
+
 #[tokio::test]
 async fn fixture_api_is_bounded_and_validated() {
     let dir = tempfile::tempdir().unwrap();
