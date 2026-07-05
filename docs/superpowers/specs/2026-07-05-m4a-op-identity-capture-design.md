@@ -1,7 +1,7 @@
 # M4a — Op identity capture & schema design
 
 **Date:** 2026-07-05
-**Status:** Approved (brainstorming session)
+**Status:** Implemented and verified (2026-07-05)
 **Parent spec:** `2026-07-02-mlir-viewer-design.md` (§4 fidelity, §5 trace format, §9 identity — the #1 technical risk, §13 M4)
 **Base branch:** `main` (M3 graph+diff complete and merged)
 **Target toolchain:** LLVM/MLIR **21.1.0-rc1** (installed at `/Users/sungjin/work/mlir-release`)

@@ -1,6 +1,6 @@
 # M4a identity capture spike findings
 
-**Toolchain:** LLVM/MLIR 21.1.0-rc1  
+**Toolchain:** LLVM/MLIR 21.1.0-rc1
 **Scope:** cooperative greedy rewrite drivers at `Fidelity::Full`
 
 ## Result

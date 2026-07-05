@@ -1,5 +1,9 @@
 # M4a — Op Identity Capture & Schema Implementation Plan
 
+**Status:** Complete — Rust workspace and the full C++ CTest suite verified on
+2026-07-05. See `../specs/M4a-identity-spike-findings.md` for spike results and
+documented fallback behavior.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Retire the project's #1 technical risk (parent spec §9) by capturing real MLIR op-lifecycle events into trace schema v2, and ship a pure-Rust synthetic identity fixture so M4b can be built without the MLIR toolchain.
