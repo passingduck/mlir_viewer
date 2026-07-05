@@ -166,17 +166,90 @@ fn location(s: &str) -> Option<String> {
     None
 }
 
-pub fn parse_module(text: &str) -> ParsedModule {
-    let mut ops: Vec<ParsedOp> = Vec::new();
-    for st in assemble_statements(text) {
-        let trimmed = st.text.trim();
-        // Pure structural tokens carry no op.
-        if trimmed == "}" || trimmed == "{" || trimmed.starts_with('^') {
+/// Net `{` minus `}` in a statement, ignoring braces inside strings.
+fn brace_delta(s: &str) -> i32 {
+    let mut delta = 0;
+    let mut in_string = false;
+    let mut escaped = false;
+
+    for byte in s.bytes() {
+        if in_string && byte == b'\\' && !escaped {
+            escaped = true;
             continue;
         }
+        if byte == b'"' && !escaped {
+            in_string = !in_string;
+        } else if !in_string {
+            match byte {
+                b'{' => delta += 1,
+                b'}' => delta -= 1,
+                _ => {}
+            }
+        }
+        escaped = false;
+    }
+
+    delta
+}
+
+fn symbol(s: &str) -> Option<String> {
+    let at = s.find('@')?;
+    let name: String = s[at + 1..]
+        .chars()
+        .take_while(|c| c.is_alphanumeric() || matches!(c, '_' | '.' | '$' | '-'))
+        .collect();
+    (!name.is_empty()).then_some(name)
+}
+
+pub fn parse_module(text: &str) -> ParsedModule {
+    use crate::model::FunctionScope;
+
+    let mut ops: Vec<ParsedOp> = Vec::new();
+    let mut functions: Vec<FunctionScope> = Vec::new();
+    let mut region_path: Vec<usize> = Vec::new();
+    let mut sibling_counter = vec![0usize];
+    let mut active_scope: Option<(usize, usize)> = None;
+
+    for st in assemble_statements(text) {
+        let trimmed = st.text.trim();
+        let delta = brace_delta(trimmed);
+        let opens_region = delta > 0;
+
+        if trimmed == "}" || (delta < 0 && trimmed.starts_with('}')) {
+            for _ in 0..(-delta) {
+                region_path.pop();
+                sibling_counter.pop();
+                if let Some((function_idx, body_depth)) = active_scope {
+                    if region_path.len() < body_depth {
+                        functions[function_idx].line_end = st.line_end;
+                        active_scope = None;
+                    }
+                }
+            }
+            continue;
+        }
+
+        if trimmed == "{" || trimmed.starts_with('^') {
+            if opens_region {
+                for _ in 0..delta {
+                    let child = sibling_counter
+                        .last_mut()
+                        .map(|counter| {
+                            let child = *counter;
+                            *counter += 1;
+                            child
+                        })
+                        .unwrap_or(0);
+                    region_path.push(child);
+                    sibling_counter.push(0);
+                }
+            }
+            continue;
+        }
+
+        let depth = region_path.len();
         let (results, rest) = split_results(trimmed);
         let name = op_name(rest);
-        // Operands = SSA names in the statement, minus the results.
         let operands: Vec<String> = ssa_names(rest)
             .into_iter()
             .filter(|n| !results.contains(n))
@@ -190,15 +263,81 @@ pub fn parse_module(text: &str) -> ParsedModule {
             result_types: result_types(trimmed),
             attr_summary: attr_summary(trimmed),
             location: location(trimmed),
-            region_path: Vec::new(),
-            depth: 0,
+            region_path: region_path.clone(),
+            depth,
             line_start: st.line_start,
             line_end: st.line_end,
             opaque: false,
         });
+
+        // Balanced single-line function bodies need their inner operations
+        // parsed separately because statement assembly keeps the line intact.
+        let balanced_function = !opens_region && symbol(trimmed).is_some();
+        if balanced_function {
+            if let (Some(open), Some(close)) = (trimmed.find('{'), trimmed.rfind('}')) {
+                if open < close {
+                    let inner = parse_module(&trimmed[open + 1..close]);
+                    let mut inner_ops = Vec::new();
+                    for mut op in inner.ops {
+                        op.idx = ops.len();
+                        op.line_start = st.line_start;
+                        op.line_end = st.line_end;
+                        inner_ops.push(op.idx);
+                        ops.push(op);
+                    }
+                    functions.push(FunctionScope {
+                        name: symbol(trimmed).expect("checked above"),
+                        ops: inner_ops,
+                        line_start: st.line_start,
+                        line_end: st.line_end,
+                    });
+                }
+            }
+        }
+
+        if opens_region {
+            if let Some(function_name) = symbol(trimmed).filter(|_| active_scope.is_none()) {
+                let function_idx = functions.len();
+                functions.push(FunctionScope {
+                    name: function_name,
+                    ops: Vec::new(),
+                    line_start: st.line_start,
+                    line_end: st.line_end,
+                });
+                active_scope = Some((function_idx, region_path.len() + 1));
+            } else if let Some((function_idx, _)) = active_scope {
+                functions[function_idx].ops.push(idx);
+                functions[function_idx].line_end = st.line_end;
+            }
+        } else if let Some((function_idx, _)) = active_scope {
+            functions[function_idx].ops.push(idx);
+            functions[function_idx].line_end = st.line_end;
+        }
+
+        if opens_region {
+            for _ in 0..delta {
+                let child = sibling_counter
+                    .last_mut()
+                    .map(|counter| {
+                        let child = *counter;
+                        *counter += 1;
+                        child
+                    })
+                    .unwrap_or(0);
+                region_path.push(child);
+                sibling_counter.push(0);
+            }
+        }
     }
-    ParsedModule {
-        ops,
-        functions: Vec::new(),
+
+    if functions.is_empty() && !ops.is_empty() {
+        functions.push(FunctionScope {
+            name: "(module)".to_string(),
+            ops: (0..ops.len()).collect(),
+            line_start: ops.first().map(|op| op.line_start).unwrap_or(1),
+            line_end: ops.last().map(|op| op.line_end).unwrap_or(1),
+        });
     }
+
+    ParsedModule { ops, functions }
 }
