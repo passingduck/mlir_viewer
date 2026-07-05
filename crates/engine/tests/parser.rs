@@ -96,6 +96,34 @@ fn malformed_line_becomes_opaque_op_and_parsing_continues() {
 }
 
 #[test]
+fn non_ascii_after_percent_does_not_panic() {
+    // A `%` immediately followed by a multi-byte char (e.g. inside a string
+    // attribute) must not slice on a non-char boundary and panic.
+    let m = parse_module("%0 = mydialect.print {fmt = \"100%é done\"} : i32\n");
+    assert_eq!(m.ops.len(), 1);
+    assert_eq!(m.ops[0].results, vec!["%0"]);
+}
+
+#[test]
+fn alloc_op_without_location_reports_none() {
+    // `loc(` must match only as a standalone token, not inside `alloc(`.
+    let m = parse_module("%0 = memref.alloc() : memref<10xf32>\n");
+    assert_eq!(m.ops.len(), 1);
+    assert_eq!(m.ops[0].name, "memref.alloc");
+    assert!(
+        m.ops[0].location.is_none(),
+        "no location was printed, got {:?}",
+        m.ops[0].location
+    );
+}
+
+#[test]
+fn standalone_loc_token_is_captured() {
+    let m = parse_module("%0 = arith.constant 1 : i32 loc(\"foo.mlir\":1:2)\n");
+    assert_eq!(m.ops[0].location.as_deref(), Some("\"foo.mlir\":1:2"));
+}
+
+#[test]
 fn every_demo_snapshot_parses_into_scopes() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("demo.mlirtrace");
