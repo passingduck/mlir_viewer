@@ -54,27 +54,26 @@ fn assemble_statements(text: &str) -> Vec<Statement> {
 
 /// Extract `%`-prefixed SSA names appearing in `s`, in order, deduplicated.
 fn ssa_names(s: &str) -> Vec<String> {
-    let bytes = s.as_bytes();
     let mut out: Vec<String> = Vec::new();
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'%' {
-            let start = i;
-            i += 1;
-            while i < bytes.len() {
-                let c = bytes[i] as char;
-                if c.is_alphanumeric() || matches!(c, '_' | '.' | '$' | '-' | '#') {
-                    i += 1;
-                } else {
-                    break;
-                }
+    let mut chars = s.char_indices().peekable();
+    while let Some((start, c)) = chars.next() {
+        if c != '%' {
+            continue;
+        }
+        // Consume the identifier body, advancing by whole chars so slice
+        // boundaries always land on char boundaries (never panic on UTF-8).
+        let mut end = start + c.len_utf8();
+        while let Some(&(idx, ch)) = chars.peek() {
+            if ch.is_alphanumeric() || matches!(ch, '_' | '.' | '$' | '-' | '#') {
+                end = idx + ch.len_utf8();
+                chars.next();
+            } else {
+                break;
             }
-            let name = s[start..i].to_string();
-            if !out.contains(&name) {
-                out.push(name);
-            }
-        } else {
-            i += 1;
+        }
+        let name = s[start..end].to_string();
+        if !out.contains(&name) {
+            out.push(name);
         }
     }
     out
@@ -148,7 +147,22 @@ fn result_types(s: &str) -> Vec<String> {
 }
 
 fn location(s: &str) -> Option<String> {
-    let p = s.find("loc(")?;
+    // Find `loc(` as a standalone token, not as a substring of an op name
+    // like `memref.alloc(` or `memref.dealloc(`. The char before `loc` must
+    // not be part of a preceding identifier.
+    let mut search = 0;
+    let p = loop {
+        let rel = s[search..].find("loc(")?;
+        let at = search + rel;
+        let boundary = s[..at]
+            .chars()
+            .next_back()
+            .is_none_or(|c| !(c.is_alphanumeric() || matches!(c, '_' | '.' | '$' | '-' | '#')));
+        if boundary {
+            break at;
+        }
+        search = at + 4;
+    };
     let rest = &s[p + 4..];
     let mut depth = 1i32;
     for (k, c) in rest.char_indices() {
