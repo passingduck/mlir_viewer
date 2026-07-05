@@ -41,6 +41,14 @@ h2 { position: sticky; top: 0; margin: 0; padding: 9px 12px; color: #9aa3b2; bac
 .cm-line.diff-modified { background: rgba(210, 168, 60, 0.20); }
 .empty-snapshot { display: grid; place-items: center; color: #657084; font-size: 12px; }
 .truncated { padding: 6px 10px; color: #d6a857; background: #211b0e; border-top: 1px solid #4b3a14; font-size: 11px; }
+.graph-view { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.graph-view canvas { flex: 1; min-height: 0; width: 100%; background: #0b0d12; touch-action: none; cursor: grab; }
+.graph-legend { display: flex; gap: 8px; padding: 4px 10px; }
+.chip { font-size: 12px; padding: 2px 8px; border-radius: 10px; background: #1b2130; color: #9aa4b2; }
+.chip.added { background: #24402a; color: #cfe9d4; }
+.chip.removed { background: #40242a; color: #e9cfd4; }
+.chip.modified { background: #40392a; color: #e9e2cf; }
+.chip.warn { background: #4a2a1b; color: #e9d4c0; }
 .status { display: grid; place-items: center; color: #9aa3b2; }
 .error, .toast { color: #fecaca; background: #3b1118; }
 .toast { position: fixed; right: 16px; bottom: 16px; max-width: 480px; padding: 10px 12px; border: 1px solid #7f1d1d; }
