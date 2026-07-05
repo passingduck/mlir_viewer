@@ -6,7 +6,7 @@ import { useViewerStore } from './store'
 import './styles.css'
 
 export function App() {
-  const { status, error, info, roots, passesById, selectedPassId, before, after, load, selectPass } = useViewerStore()
+  const { status, error, info, roots, passesById, selectedPassId, before, after, diff, diffEnabled, viewMode, load, selectPass } = useViewerStore()
   const selectedPass = selectedPassId === null ? null : passesById[selectedPassId]
   const diffAvailable = Boolean(
     selectedPass && selectedPass.ir_before !== null && selectedPass.ir_after !== null,
@@ -31,7 +31,11 @@ export function App() {
           </nav>
           <div className="viewer-pane">
             <Toolbar diffAvailable={diffAvailable} />
-            <IrViewer before={before} after={after} />
+            <IrViewer
+              before={before}
+              after={after}
+              diff={diffEnabled && viewMode === 'text' ? diff : null}
+            />
           </div>
         </main>
       )}

@@ -36,6 +36,9 @@ h2 { position: sticky; top: 0; margin: 0; padding: 9px 12px; color: #9aa3b2; bac
 .editor-host { min-height: 0; overflow: hidden; }
 .editor-host .cm-editor { height: 100%; font-size: 12px; }
 .editor-host .cm-scroller { overflow: auto; }
+.cm-line.diff-added { background: rgba(46, 160, 67, 0.18); }
+.cm-line.diff-removed { background: rgba(248, 81, 73, 0.18); }
+.cm-line.diff-modified { background: rgba(210, 168, 60, 0.20); }
 .empty-snapshot { display: grid; place-items: center; color: #657084; font-size: 12px; }
 .truncated { padding: 6px 10px; color: #d6a857; background: #211b0e; border-top: 1px solid #4b3a14; font-size: 11px; }
 .status { display: grid; place-items: center; color: #9aa3b2; }
