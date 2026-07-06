@@ -174,6 +174,9 @@ pub enum HistoryChange {
     Replaced,
     Modified,
     Unchanged,
+    /// Present in one snapshot, then gone with neither an exact event nor an
+    /// inferred match — synthesized so no history is ever an empty timeline.
+    Disappeared,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -821,7 +824,7 @@ pub fn resolve_function(function: &str, stages: &[TimelineStage]) -> ResolvedFun
                 .unwrap_or(usize::MAX);
             (relation.stage_index, ordinal)
         });
-        let steps = component_relations
+        let mut steps: Vec<HistoryStep> = component_relations
             .into_iter()
             .map(|relation| {
                 let stage = &stages[relation.stage_index];
@@ -840,6 +843,20 @@ pub fn resolve_function(function: &str, stages: &[TimelineStage]) -> ResolvedFun
                 }
             })
             .collect();
+        if steps.is_empty() {
+            let anchor_pass_id = anchor.pass_id;
+            let anchor_pass_name = stages[anchor.key.stage_index].pass_name.clone();
+            let anchor_occurrence = occurrence(&anchor.operation, anchor.key.side);
+            steps.push(HistoryStep {
+                pass_id: anchor_pass_id,
+                pass_name: anchor_pass_name,
+                change: HistoryChange::Disappeared,
+                before: Some(anchor_occurrence),
+                after: None,
+                evidence: Vec::new(),
+                confidence: LinkConfidence::Exact,
+            });
+        }
         let first_name = nodes[node_ids_in_component[0]].operation.name.clone();
         let last_name = nodes[*node_ids_in_component.last().unwrap()]
             .operation

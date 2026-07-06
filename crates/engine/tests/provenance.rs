@@ -282,6 +282,41 @@ fn missing_events_use_inferred_score_and_never_cross_names() {
     assert_ne!(addi_uid, muli_uid);
 }
 
+#[test]
+fn unlinked_removed_op_gets_terminal_disappeared_step() {
+    // Stage 1: before has an op that vanishes; after contains only an op with
+    // a different name so the fingerprint matcher cannot link them and no
+    // identity events exist.
+    let stages = vec![TimelineStage {
+        pass_id: 1,
+        pass_name: "canonicalize".into(),
+        before: Some(snapshot(
+            SnapshotSide::Before,
+            1,
+            "func.func @f() {\n  \"x.vanish\"() : () -> ()\n}\n",
+            &[],
+        )),
+        after: Some(snapshot(
+            SnapshotSide::After,
+            2,
+            "func.func @f() {\n  \"y.other\"() : () -> ()\n}\n",
+            &[],
+        )),
+        events: Vec::new(),
+    }];
+    let resolved = resolve_function("f", &stages);
+    let history = resolved
+        .histories
+        .values()
+        .find(|h| h.first_name == "x.vanish")
+        .expect("vanished op has a history");
+    assert_eq!(history.steps.len(), 1);
+    assert_eq!(history.steps[0].change, HistoryChange::Disappeared);
+    assert!(history.steps[0].before.is_some());
+    assert!(history.steps[0].after.is_none());
+    assert_eq!(history.steps[0].evidence, vec![]);
+}
+
 fn merge_stages(conflict: bool) -> Vec<TimelineStage> {
     let before = "func.func @f(%arg0: i32) -> i32 {\n  %0 = arith.addi %arg0, %arg0 : i32\n  %1 = arith.addi %0, %arg0 : i32\n  return %1 : i32\n}\n";
     let after = if conflict {

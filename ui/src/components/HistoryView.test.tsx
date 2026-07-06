@@ -81,3 +81,28 @@ test('renders a loading state before history arrives', () => {
   render(<HistoryView history={null} onViewIr={() => {}} />)
   expect(screen.getByText('Loading operation history…')).toBeInTheDocument()
 })
+
+test('renders a disappeared terminal step', () => {
+  render(
+    <HistoryView
+      history={{
+        uid: 'op1.Zg.1.b.0',
+        first_name: 'x.vanish',
+        last_name: 'x.vanish',
+        steps: [
+          {
+            pass_id: 1,
+            pass_name: 'canonicalize',
+            change: 'disappeared',
+            before: { side: 'before', op_idx: 0, name: 'x.vanish', line_start: 2, line_end: 2, attr_summary: '', location: null },
+            after: null,
+            evidence: [],
+            confidence: { kind: 'exact' },
+          },
+        ],
+      }}
+      onViewIr={() => {}}
+    />,
+  )
+  expect(screen.getByText('disappeared')).toBeInTheDocument()
+})

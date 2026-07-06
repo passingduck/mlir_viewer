@@ -89,7 +89,13 @@ export interface SelectableOp {
 }
 
 export type SnapshotSide = 'before' | 'after'
-export type HistoryChange = 'inserted' | 'erased' | 'replaced' | 'modified' | 'unchanged'
+export type HistoryChange =
+  | 'inserted'
+  | 'erased'
+  | 'replaced'
+  | 'modified'
+  | 'unchanged'
+  | 'disappeared'
 export type EvidenceSource = 'listener' | 'action' | 'fingerprint' | 'shared_snapshot'
 export type LinkConfidence = { kind: 'exact' } | { kind: 'inferred'; score: number }
 
