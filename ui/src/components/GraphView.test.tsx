@@ -1,6 +1,9 @@
-import { expect, test } from 'vitest'
+import { cleanup, render, screen } from '@testing-library/react'
+import { afterEach, expect, test } from 'vitest'
 import type { DataflowGraph } from '../api'
-import { nextSelectableNodeId, selectableUid } from './GraphView'
+import { GraphView, nextSelectableNodeId, selectableUid } from './GraphView'
+
+afterEach(cleanup)
 
 const graph: DataflowGraph = {
   nodes: [
@@ -26,6 +29,11 @@ const graph: DataflowGraph = {
   clusters: [],
   truncated: false,
 }
+
+test('shows the busy status while the graph is still loading (graph === null)', () => {
+  render(<GraphView graph={null} diffEnabled onSelectOp={() => {}} />)
+  expect(screen.getByText('Laying out graph…')).toBeInTheDocument()
+})
 
 test('returns a UID only for selectable graph nodes', () => {
   expect(selectableUid(graph, 'op0')).toBe('op1.Zg.1.a.0')

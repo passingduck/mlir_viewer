@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { DataflowGraph } from '../api'
+import { layoutGraph } from '../graph/elkLayout'
 import { drawGraph, hitTest, type Layout, type ViewState } from '../graph/render'
 
 interface GraphViewProps {
@@ -32,7 +33,10 @@ export function GraphView({ graph, diffEnabled, onSelectOp }: GraphViewProps) {
     : ''
   const [layoutState, setLayoutState] = useState<{ key: string; layout: Layout } | null>(null)
   const layout = layoutState?.key === graphKey ? layoutState.layout : null
-  const layingOut = graph !== null && layout === null
+  // GraphView is only mounted in graph mode, so a null graph means the fetch
+  // is still in flight; the busy status must cover that window too, or
+  // keyboard selection silently no-ops against an empty graph.
+  const layingOut = layout === null
   const viewRef = useRef<ViewState>({
     scale: 1,
     offsetX: 20,
@@ -46,15 +50,17 @@ export function GraphView({ graph, diffEnabled, onSelectOp }: GraphViewProps) {
       setLayoutState(null)
       return
     }
-    const worker = new Worker(new URL('../graph/layout.worker.ts', import.meta.url), {
-      type: 'module',
-    })
-    worker.onmessage = (event: MessageEvent<Layout>) => {
-      setLayoutState({ key: graphKey, layout: event.data })
-      worker.terminate()
+    let cancelled = false
+    layoutGraph(graph)
+      .then((result) => {
+        if (!cancelled) setLayoutState({ key: graphKey, layout: result })
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) console.error('graph layout failed', error)
+      })
+    return () => {
+      cancelled = true
     }
-    worker.postMessage({ graph })
-    return () => worker.terminate()
   }, [graph, graphKey])
 
   const redraw = () => {
