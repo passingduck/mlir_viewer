@@ -61,6 +61,8 @@ target_link_libraries(MLIRTrace
 
 add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../examples/capture-toy"
                  "${CMAKE_CURRENT_BINARY_DIR}/capture-toy")
+add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../examples/mlir-trace-opt"
+                 "${CMAKE_CURRENT_BINARY_DIR}/mlir-trace-opt-build")
 
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
