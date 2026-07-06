@@ -24,7 +24,14 @@ fn golden_v1_trace_remains_readable() {
 fn cpp_generated_trace_is_v1_compatible() {
     let path = std::env::var("MLIR_TRACE_CPP_FIXTURE")
         .expect("MLIR_TRACE_CPP_FIXTURE must point to a C++-generated trace");
-    let reader = TraceReader::open(std::path::Path::new(&path)).unwrap();
+    // Cargo runs tests from the crate directory, so resolve a relative path
+    // against the workspace root the developer actually invoked cargo from.
+    let mut resolved = std::path::PathBuf::from(&path);
+    if resolved.is_relative() {
+        let workspace_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        resolved = workspace_root.join(resolved);
+    }
+    let reader = TraceReader::open(&resolved).unwrap();
     let roots = reader.passes().unwrap();
     assert_eq!(roots.len(), 1);
 
