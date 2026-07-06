@@ -1,7 +1,7 @@
 # M5 — Inspector, search, command palette, layout design
 
 **Date:** 2026-07-06
-**Status:** Draft — awaiting review
+**Status:** Approved (2026-07-06)
 **Parent spec:** `2026-07-02-mlir-viewer-design.md` (§8 frontend, §13 M5)
 **Foundation:** M4b provenance (`OpUid`, selectable ops, history) and
 `2026-07-06-real-pipeline-validation-findings.md`
