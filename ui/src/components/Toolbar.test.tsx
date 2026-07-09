@@ -38,13 +38,13 @@ describe('Toolbar', () => {
     expect(useViewerStore.getState().viewMode).toBe('text')
   })
 
-  it('enables History only after op selection and supports keyboard h', () => {
+  it('enables inspector history via keyboard h after op selection', () => {
     const { rerender } = render(<Toolbar diffAvailable />)
-    expect(screen.getByRole('button', { name: 'History' })).toBeDisabled()
 
     useViewerStore.setState({ selectedOpUid: 'op1.Zg.1.b.0' })
     rerender(<Toolbar diffAvailable />)
     fireEvent.keyDown(window, { key: 'h' })
-    expect(useViewerStore.getState().viewMode).toBe('history')
+    expect(useViewerStore.getState().inspectorTab).toBe('history')
+    expect(useViewerStore.getState().inspectorOpen).toBe(true)
   })
 })

@@ -48,6 +48,23 @@ vi.mock('./api', async (importOriginal) => {
         last_name: 'test.op',
         steps: [],
       })),
+      opDetail: vi.fn(async (uid: string) => ({
+        uid,
+        func: 'forward',
+        pass_id: 1,
+        side: 'before',
+        op_idx: 0,
+        name: 'test.op',
+        results: [],
+        operands: [],
+        result_types: [],
+        attr_summary: '',
+        location: null,
+        region_path: [],
+        line_start: 1,
+        line_end: 1,
+        opaque: false,
+      })),
     },
   }
 })
@@ -98,12 +115,12 @@ describe('store toggles', () => {
     expect(useViewerStore.getState().selectableAfter).toHaveLength(1)
   })
 
-  it('selects an op, loads history, and preserves selection when viewing IR', async () => {
+  it('selects an op, opens inspector, and preserves selection when viewing IR', async () => {
     await useViewerStore.getState().load()
     await useViewerStore.getState().selectOp('op1.Zg.1.b.0')
 
-    expect(useViewerStore.getState().viewMode).toBe('history')
-    expect(useViewerStore.getState().history?.uid).toBe('op1.Zg.1.b.0')
+    expect(useViewerStore.getState().inspectorOpen).toBe(true)
+    expect(useViewerStore.getState().opDetail?.uid).toBe('op1.Zg.1.b.0')
 
     await useViewerStore.getState().viewHistoryStep(1)
     expect(useViewerStore.getState().viewMode).toBe('text')

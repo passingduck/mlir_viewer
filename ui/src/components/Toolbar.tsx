@@ -15,6 +15,7 @@ export function Toolbar({ diffAvailable }: ToolbarProps) {
     setViewMode,
     toggleDiff,
     selectFunc,
+    openInspector,
   } = useViewerStore()
 
   useEffect(() => {
@@ -23,12 +24,12 @@ export function Toolbar({ diffAvailable }: ToolbarProps) {
       if (target && (target.tagName === 'INPUT' || target.tagName === 'SELECT')) return
       if (event.key === 't') setViewMode('text')
       else if (event.key === 'g') setViewMode('graph')
-      else if (event.key === 'h' && selectedOpUid) setViewMode('history')
+      else if (event.key === 'h' && selectedOpUid) openInspector('history')
       else if (event.key === 'd' && diffAvailable) toggleDiff()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [diffAvailable, selectedOpUid, setViewMode, toggleDiff])
+  }, [diffAvailable, selectedOpUid, setViewMode, toggleDiff, openInspector])
 
   return (
     <div className="toolbar" role="toolbar" aria-label="View controls">
@@ -49,27 +50,13 @@ export function Toolbar({ diffAvailable }: ToolbarProps) {
         >
           Graph
         </button>
-        <button
-          type="button"
-          aria-pressed={viewMode === 'history'}
-          className={viewMode === 'history' ? 'active' : ''}
-          disabled={!selectedOpUid}
-          title={selectedOpUid ? 'View operation history (h)' : 'Select an operation first'}
-          onClick={() => setViewMode('history')}
-        >
-          History
-        </button>
       </div>
       <button
         type="button"
         className={diffEnabled ? 'diff-toggle active' : 'diff-toggle'}
         aria-pressed={diffEnabled}
-        disabled={!diffAvailable || viewMode === 'history'}
-        title={
-          diffAvailable
-            ? 'Toggle structural diff (d)'
-            : 'This pass is missing a before or after snapshot'
-        }
+        disabled={!diffAvailable}
+        title={diffAvailable ? 'Toggle structural diff (d)' : 'This pass is missing a before or after snapshot'}
         onClick={toggleDiff}
       >
         Diff

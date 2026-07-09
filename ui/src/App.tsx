@@ -1,14 +1,14 @@
 import { useEffect } from 'react'
 import { IrViewer } from './components/IrViewer'
 import { GraphView } from './components/GraphView'
-import { HistoryView } from './components/HistoryView'
 import { Timeline } from './components/Timeline'
 import { Toolbar } from './components/Toolbar'
+import { InspectorPanel } from './components/InspectorPanel'
 import { useViewerStore } from './store'
 import './styles.css'
 
 export function App() {
-  const { status, error, info, roots, passesById, selectedPassId, before, after, diff, graph, diffEnabled, viewMode, selectableBefore, selectableAfter, history, load, selectPass, selectOp, viewHistoryStep } = useViewerStore()
+  const { status, error, info, roots, passesById, selectedPassId, before, after, diff, graph, diffEnabled, viewMode, selectableBefore, selectableAfter, inspectorOpen, load, selectPass, selectOp } = useViewerStore()
   const selectedPass = selectedPassId === null ? null : passesById[selectedPassId]
   const diffAvailable = Boolean(
     selectedPass && selectedPass.ir_before !== null && selectedPass.ir_after !== null,
@@ -33,9 +33,7 @@ export function App() {
           </nav>
           <div className="viewer-pane">
             <Toolbar diffAvailable={diffAvailable} />
-            {viewMode === 'history' ? (
-              <HistoryView history={history} onViewIr={viewHistoryStep} />
-            ) : viewMode === 'graph' ? (
+            {viewMode === 'graph' ? (
               <GraphView graph={graph} diffEnabled={diffEnabled} onSelectOp={selectOp} />
             ) : (
               <IrViewer
@@ -48,6 +46,7 @@ export function App() {
               />
             )}
           </div>
+          {inspectorOpen && <InspectorPanel />}
         </main>
       )}
       {error && status !== 'error' && <div className="toast" role="alert">{error}</div>}

@@ -1,11 +1,13 @@
 import { create } from 'zustand'
 import {
   api,
+  ApiError,
   type DataflowGraph,
   type FunctionDiff,
   type FunctionInfo,
   type IrPage,
   type IrSide,
+  type OpDetail,
   type OpHistory,
   type PassNode,
   type SelectableOp,
@@ -13,7 +15,7 @@ import {
 } from './api'
 
 type LoadState = 'idle' | 'loading' | 'ready' | 'error'
-type ViewMode = 'text' | 'graph' | 'history'
+type ViewMode = 'text' | 'graph'
 
 const GRAPH_BUDGET = 2000
 
@@ -36,6 +38,10 @@ interface ViewerState {
   selectableAfter: SelectableOp[]
   selectedOpUid: string | null
   history: OpHistory | null
+  inspectorOpen: boolean
+  inspectorTab: 'structure' | 'history'
+  opDetail: OpDetail | null
+  detailStale: boolean
   load: () => Promise<void>
   selectPass: (id: number) => Promise<void>
   setViewMode: (mode: ViewMode) => void
@@ -43,6 +49,8 @@ interface ViewerState {
   selectFunc: (name: string) => void
   refreshView: () => Promise<void>
   selectOp: (uid: string) => Promise<void>
+  openInspector: (tab: 'structure' | 'history') => void
+  closeInspector: () => void
   viewHistoryStep: (passId: number) => Promise<void>
   reset: () => void
 }
@@ -66,6 +74,10 @@ const initialState = {
   selectableAfter: [] as SelectableOp[],
   selectedOpUid: null as string | null,
   history: null as OpHistory | null,
+  inspectorOpen: false,
+  inspectorTab: 'structure' as const,
+  opDetail: null as OpDetail | null,
+  detailStale: false,
 }
 
 function flatten(nodes: PassNode[], output: PassNode[] = []): PassNode[] {
@@ -126,12 +138,27 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
           : (functions[0]?.name ?? null)
       set({ before, after, functions, selectedFunc })
       await get().refreshView()
+      // Keep the inspector detail in sync with the pass the user is viewing.
+      const uid = get().selectedOpUid
+      if (uid) {
+        try {
+          const detail = await api.opDetail(uid, id)
+          if (get().selectedOpUid === uid) set({ opDetail: detail, detailStale: false })
+        } catch (error) {
+          if (get().selectedOpUid === uid) {
+            if (error instanceof ApiError && error.status === 404) {
+              set({ detailStale: true })
+            } else {
+              set({ error: error instanceof Error ? error.message : String(error) })
+            }
+          }
+        }
+      }
     } catch (error) {
       set({ error: error instanceof Error ? error.message : String(error) })
     }
   },
   setViewMode: (viewMode) => {
-    if (viewMode === 'history' && get().selectedOpUid === null) return
     set({ viewMode })
     void get().refreshView()
   },
@@ -140,7 +167,14 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
     void get().refreshView()
   },
   selectFunc: (selectedFunc) => {
-    set({ selectedFunc, selectedOpUid: null, history: null })
+    set({
+      selectedFunc,
+      selectedOpUid: null,
+      history: null,
+      opDetail: null,
+      inspectorOpen: false,
+      detailStale: false,
+    })
     void get().refreshView()
   },
   refreshView: async () => {
@@ -176,16 +210,29 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
     }
   },
   selectOp: async (uid) => {
-    set({ selectedOpUid: uid, history: null, viewMode: 'history', error: null })
+    set({
+      selectedOpUid: uid,
+      history: null,
+      opDetail: null,
+      detailStale: false,
+      inspectorOpen: true,
+      error: null,
+    })
+    const passId = get().selectedPassId
     try {
-      const history = await api.opHistory(uid)
-      if (get().selectedOpUid === uid) set({ history })
+      const [history, detail] = await Promise.all([
+        api.opHistory(uid),
+        api.opDetail(uid, passId ?? undefined),
+      ])
+      if (get().selectedOpUid === uid) set({ history, opDetail: detail })
     } catch (error) {
       if (get().selectedOpUid === uid) {
         set({ error: error instanceof Error ? error.message : String(error) })
       }
     }
   },
+  openInspector: (tab) => set({ inspectorOpen: true, inspectorTab: tab }),
+  closeInspector: () => set({ inspectorOpen: false }),
   viewHistoryStep: async (passId) => {
     await get().selectPass(passId)
     set({ viewMode: 'text' })
