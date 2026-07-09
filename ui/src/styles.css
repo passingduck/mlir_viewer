@@ -101,6 +101,9 @@ h2 { position: sticky; top: 0; margin: 0; padding: 9px 12px; color: #9aa3b2; bac
 [cmdk-item][data-selected='true'] { background: #1b2740; }
 [cmdk-empty] { padding: 16px; color: #7f8999; text-align: center; }
 
+.workspace { min-height: 0; height: 100%; }
+.panel-scroll { height: 100%; overflow: auto; }
+
 @media (max-width: 900px) {
   main { grid-template-columns: 1fr; grid-template-rows: minmax(160px, 35vh) 1fr; }
   nav { border-right: 0; border-bottom: 1px solid #282d38; }

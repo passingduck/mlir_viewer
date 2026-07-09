@@ -2,6 +2,7 @@ import { Command } from 'cmdk'
 import { useEffect, useState } from 'react'
 import { api, type SearchResult } from '../api'
 import { useViewerStore } from '../store'
+import { resetLayout } from '../Workspace'
 
 export function CommandPalette() {
   const {
@@ -62,11 +63,12 @@ export function CommandPalette() {
             </Command.Item>
           ))}
         </Command.Group>
-        <Command.Group heading="Actions">
-          <Command.Item onSelect={() => { setViewMode('text'); close() }}>View: Text</Command.Item>
-          <Command.Item onSelect={() => { setViewMode('graph'); close() }}>View: Graph</Command.Item>
-          <Command.Item onSelect={() => { toggleDiff(); close() }}>Toggle diff</Command.Item>
-        </Command.Group>
+          <Command.Group heading="Actions">
+            <Command.Item onSelect={() => { setViewMode('text'); close() }}>View: Text</Command.Item>
+            <Command.Item onSelect={() => { setViewMode('graph'); close() }}>View: Graph</Command.Item>
+            <Command.Item onSelect={() => { toggleDiff(); close() }}>Toggle diff</Command.Item>
+            <Command.Item onSelect={() => { resetLayout(); close() }}>Reset layout</Command.Item>
+          </Command.Group>
         {ops.length > 0 && (
           <Command.Group heading="Operations">
             {ops.map((result) => (

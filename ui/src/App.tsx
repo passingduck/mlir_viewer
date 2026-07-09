@@ -1,21 +1,13 @@
 import { useEffect } from 'react'
-import { IrViewer } from './components/IrViewer'
-import { GraphView } from './components/GraphView'
-import { Timeline } from './components/Timeline'
-import { Toolbar } from './components/Toolbar'
-import { InspectorPanel } from './components/InspectorPanel'
 import { CommandPalette } from './components/CommandPalette'
+import { Workspace } from './Workspace'
 import { useGlobalKeys } from './useGlobalKeys'
 import { useViewerStore } from './store'
 import './styles.css'
 
 export function App() {
-  const { status, error, info, roots, passesById, selectedPassId, before, after, diff, graph, diffEnabled, viewMode, selectableBefore, selectableAfter, inspectorOpen, load, selectPass, selectOp } = useViewerStore()
+  const { status, error, info, roots, load } = useViewerStore()
   useGlobalKeys()
-  const selectedPass = selectedPassId === null ? null : passesById[selectedPassId]
-  const diffAvailable = Boolean(
-    selectedPass && selectedPass.ir_before !== null && selectedPass.ir_after !== null,
-  )
   useEffect(() => {
     void load()
   }, [load])
@@ -29,29 +21,7 @@ export function App() {
       {status === 'loading' && <div className="status">Loading trace…</div>}
       {status === 'error' && <div className="status error" role="alert">{error}</div>}
       {status === 'ready' && roots.length === 0 && <div className="status">No passes recorded.</div>}
-      {status === 'ready' && roots.length > 0 && (
-        <main>
-          <nav aria-label="Pass timeline">
-            <Timeline roots={roots} selectedPassId={selectedPassId} onSelect={(id) => void selectPass(id)} />
-          </nav>
-          <div className="viewer-pane">
-            <Toolbar diffAvailable={diffAvailable} />
-            {viewMode === 'graph' ? (
-              <GraphView graph={graph} diffEnabled={diffEnabled} onSelectOp={selectOp} />
-            ) : (
-              <IrViewer
-                before={before}
-                after={after}
-                diff={diffEnabled ? diff : null}
-                beforeOps={selectableBefore}
-                afterOps={selectableAfter}
-                onSelectOp={selectOp}
-              />
-            )}
-          </div>
-          {inspectorOpen && <InspectorPanel />}
-        </main>
-      )}
+      {status === 'ready' && roots.length > 0 && <Workspace />}
       {error && status !== 'error' && <div className="toast" role="alert">{error}</div>}
       <CommandPalette />
     </div>
