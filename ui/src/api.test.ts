@@ -1,6 +1,14 @@
 import { encode } from '@msgpack/msgpack'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { api, type DataflowGraph, type FunctionDiff, type OpHistory, type SelectableOp } from './api'
+import {
+  api,
+  type DataflowGraph,
+  type FunctionDiff,
+  type OpHistory,
+  type OpDetail,
+  type SearchResult,
+  type SelectableOp,
+} from './api'
 
 afterEach(() => vi.restoreAllMocks())
 
@@ -53,5 +61,47 @@ describe('api msgpack decoding', () => {
     mockFetch(encode(history))
     expect(await api.opHistory(history.uid)).toEqual(history)
     expect(fetch).toHaveBeenCalledWith('/api/ops/op1.Zg.1.b.0/history')
+  })
+
+  it('searchOps encodes query params and decodes results', async () => {
+    const results: SearchResult[] = [
+      {
+        pass_id: 2,
+        side: 'after',
+        func: 'f',
+        op_idx: 1,
+        name: 'arith.addi',
+        line_start: 3,
+        line_end: 3,
+        excerpt: 'arith.addi',
+      },
+    ]
+    mockFetch(encode(results))
+    const decoded = await api.searchOps('addi', 2, 'pipeline')
+    expect(fetch).toHaveBeenCalledWith('/api/search?q=addi&pass=2&scope=pipeline')
+    expect(decoded[0].name).toBe('arith.addi')
+  })
+
+  it('opDetail hits /api/ops/{uid} with optional pass/side', async () => {
+    const detail: OpDetail = {
+      uid: 'op1.Zg.2.b.0',
+      func: 'f',
+      pass_id: 2,
+      side: 'before',
+      op_idx: 0,
+      name: 'x',
+      results: [],
+      operands: [],
+      result_types: [],
+      attr_summary: '',
+      location: null,
+      region_path: [],
+      line_start: 1,
+      line_end: 1,
+      opaque: false,
+    }
+    mockFetch(encode(detail))
+    await api.opDetail('op1.Zg.2.b.0', 2, 'before')
+    expect(fetch).toHaveBeenCalledWith('/api/ops/op1.Zg.2.b.0?pass=2&side=before')
   })
 })

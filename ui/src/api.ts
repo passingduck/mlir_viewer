@@ -132,6 +132,35 @@ export interface OpHistory {
   steps: HistoryStep[]
 }
 
+export interface SearchResult {
+  pass_id: number
+  side: IrSide
+  func: string
+  op_idx: number
+  name: string
+  line_start: number
+  line_end: number
+  excerpt: string
+}
+
+export interface OpDetail {
+  uid: string
+  func: string
+  pass_id: number
+  side: IrSide
+  op_idx: number
+  name: string
+  results: string[]
+  operands: string[]
+  result_types: string[]
+  attr_summary: string
+  location: string | null
+  region_path: number[]
+  line_start: number
+  line_end: number
+  opaque: boolean
+}
+
 export class ApiError extends Error {
   constructor(
     public readonly status: number,
@@ -189,4 +218,16 @@ export const api = {
     ),
   opHistory: (uid: string) =>
     getMsgpack<OpHistory>(`/api/ops/${encodeURIComponent(uid)}/history`),
+  searchOps: (q: string, passId: number, scope: 'pass' | 'pipeline', side?: IrSide) => {
+    const params = new URLSearchParams({ q, pass: String(passId), scope })
+    if (side) params.set('side', side)
+    return getMsgpack<SearchResult[]>(`/api/search?${params}`)
+  },
+  opDetail: (uid: string, passId?: number, side?: IrSide) => {
+    const params = new URLSearchParams()
+    if (passId !== undefined) params.set('pass', String(passId))
+    if (side) params.set('side', side)
+    const suffix = params.size > 0 ? `?${params}` : ''
+    return getMsgpack<OpDetail>(`/api/ops/${encodeURIComponent(uid)}${suffix}`)
+  },
 }
