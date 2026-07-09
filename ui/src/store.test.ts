@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { api } from './api'
+import { api, type SearchResult } from './api'
 import { useViewerStore } from './store'
 
 vi.mock('./api', async (importOriginal) => {
@@ -181,5 +181,23 @@ describe('store toggles', () => {
     await useViewerStore.getState().stepPass(1)
     await useViewerStore.getState().stepPass(1)
     expect(useViewerStore.getState().selectedPassId).toBe(4)
+  })
+
+  it('opens a search result on its matching snapshot side', async () => {
+    await useViewerStore.getState().load()
+    const result: SearchResult = {
+      pass_id: 1,
+      side: 'after',
+      func: 'forward',
+      op_idx: 0,
+      name: 'test.op',
+      line_start: 1,
+      line_end: 1,
+      excerpt: 'test.op',
+    }
+
+    await useViewerStore.getState().jumpToSearchResult(result)
+
+    expect(api.opDetail).toHaveBeenLastCalledWith('op1.Zg.1.a.0', 1, 'after')
   })
 })

@@ -50,7 +50,7 @@ interface ViewerState {
   toggleDiff: () => void
   selectFunc: (name: string) => void
   refreshView: () => Promise<void>
-  selectOp: (uid: string) => Promise<void>
+  selectOp: (uid: string, side?: IrSide) => Promise<void>
   openInspector: (tab: 'structure' | 'history') => void
   closeInspector: () => void
   setPaletteOpen: (open: boolean) => void
@@ -215,7 +215,7 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
       set({ error: error instanceof Error ? error.message : String(error) })
     }
   },
-  selectOp: async (uid) => {
+  selectOp: async (uid, side) => {
     set({
       selectedOpUid: uid,
       history: null,
@@ -228,7 +228,7 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
     try {
       const [history, detail] = await Promise.all([
         api.opHistory(uid),
-        api.opDetail(uid, passId ?? undefined),
+        api.opDetail(uid, passId ?? undefined, side),
       ])
       if (get().selectedOpUid === uid) set({ history, opDetail: detail })
     } catch (error) {
@@ -260,7 +260,7 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
     if (get().selectedFunc !== result.func) await get().selectFunc(result.func)
     const ops = await api.selectableOps(result.pass_id, result.side, result.func)
     const op = ops.find((candidate) => candidate.op_idx === result.op_idx)
-    if (op) await get().selectOp(op.uid)
+    if (op) await get().selectOp(op.uid, result.side)
   },
   viewHistoryStep: async (passId) => {
     await get().selectPass(passId)

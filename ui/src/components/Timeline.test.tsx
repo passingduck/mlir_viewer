@@ -19,19 +19,11 @@ const roots: PassNode[] = [
   },
 ]
 
-test('renders nested timing and badges and supports click and step keys', () => {
+test('renders nested timing and badges and supports click', () => {
   const onSelect = vi.fn()
-  const { rerender } = render(
-    <Timeline roots={roots} selectedPassId={2} onSelect={onSelect} />,
-  )
+  render(<Timeline roots={roots} selectedPassId={2} onSelect={onSelect} />)
   expect(screen.getByText('1.00 ms')).toBeInTheDocument()
   expect(screen.getByText('no-op')).toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: /cse/ }))
   expect(onSelect).toHaveBeenCalledWith(3)
-
-  rerender(<Timeline roots={roots} selectedPassId={2} onSelect={onSelect} />)
-  fireEvent.keyDown(window, { key: ']' })
-  expect(onSelect).toHaveBeenLastCalledWith(3)
-  fireEvent.keyDown(window, { key: '[' })
-  expect(onSelect).toHaveBeenLastCalledWith(1)
 })

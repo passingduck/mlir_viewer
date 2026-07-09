@@ -1,4 +1,3 @@
-import { useEffect, useMemo } from 'react'
 import type { PassNode } from '../api'
 
 interface TimelineProps {
@@ -10,14 +9,6 @@ interface TimelineProps {
 interface PassRowsProps extends Omit<TimelineProps, 'roots'> {
   nodes: PassNode[]
   depth: number
-}
-
-function flatten(nodes: PassNode[], output: PassNode[] = []): PassNode[] {
-  for (const node of nodes) {
-    output.push(node)
-    flatten(node.children, output)
-  }
-  return output
 }
 
 function PassRows({
@@ -62,22 +53,5 @@ function PassRows({
 }
 
 export function Timeline({ roots, selectedPassId, onSelect }: TimelineProps) {
-  const ordered = useMemo(() => flatten(roots), [roots])
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== '[' && event.key !== ']') return
-      const current = ordered.findIndex((pass) => pass.id === selectedPassId)
-      if (current < 0) return
-      const next = event.key === ']' ? current + 1 : current - 1
-      if (ordered[next]) {
-        event.preventDefault()
-        onSelect(ordered[next].id)
-      }
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [onSelect, ordered, selectedPassId])
-
   return <PassRows nodes={roots} depth={0} selectedPassId={selectedPassId} onSelect={onSelect} />
 }
