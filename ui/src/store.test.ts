@@ -126,4 +126,60 @@ describe('store toggles', () => {
     expect(useViewerStore.getState().viewMode).toBe('text')
     expect(useViewerStore.getState().selectedOpUid).toBe('op1.Zg.1.b.0')
   })
+
+  it('stepPass walks executable leaves in order and clamps at the ends', async () => {
+    vi.mocked(api.passes).mockImplementationOnce(async () => [
+      {
+        id: 1,
+        name: 'p',
+        ir_before: 10,
+        ir_after: 11,
+        start_ns: 0,
+        end_ns: 1,
+        ir_changed: true,
+        children: [
+          {
+            id: 2,
+            name: 'canonicalize',
+            ir_before: 10,
+            ir_after: 11,
+            start_ns: 0,
+            end_ns: 1,
+            ir_changed: true,
+            children: [],
+          },
+          {
+            id: 3,
+            name: 'dce',
+            ir_before: 11,
+            ir_after: 12,
+            start_ns: 1,
+            end_ns: 2,
+            ir_changed: true,
+            children: [],
+          },
+          {
+            id: 4,
+            name: 'set-attr',
+            ir_before: 12,
+            ir_after: 13,
+            start_ns: 2,
+            end_ns: 3,
+            ir_changed: true,
+            children: [],
+          },
+        ],
+      },
+    ])
+    await useViewerStore.getState().load()
+    useViewerStore.setState({ selectedPassId: 2 })
+    await useViewerStore.getState().stepPass(1)
+    expect(useViewerStore.getState().selectedPassId).toBe(3)
+    await useViewerStore.getState().stepPass(-1)
+    await useViewerStore.getState().stepPass(-1)
+    expect(useViewerStore.getState().selectedPassId).toBe(2)
+    await useViewerStore.getState().stepPass(1)
+    await useViewerStore.getState().stepPass(1)
+    expect(useViewerStore.getState().selectedPassId).toBe(4)
+  })
 })

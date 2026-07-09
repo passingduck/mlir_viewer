@@ -4,11 +4,14 @@ import { GraphView } from './components/GraphView'
 import { Timeline } from './components/Timeline'
 import { Toolbar } from './components/Toolbar'
 import { InspectorPanel } from './components/InspectorPanel'
+import { CommandPalette } from './components/CommandPalette'
+import { useGlobalKeys } from './useGlobalKeys'
 import { useViewerStore } from './store'
 import './styles.css'
 
 export function App() {
   const { status, error, info, roots, passesById, selectedPassId, before, after, diff, graph, diffEnabled, viewMode, selectableBefore, selectableAfter, inspectorOpen, load, selectPass, selectOp } = useViewerStore()
+  useGlobalKeys()
   const selectedPass = selectedPassId === null ? null : passesById[selectedPassId]
   const diffAvailable = Boolean(
     selectedPass && selectedPass.ir_before !== null && selectedPass.ir_after !== null,
@@ -50,6 +53,7 @@ export function App() {
         </main>
       )}
       {error && status !== 'error' && <div className="toast" role="alert">{error}</div>}
+      <CommandPalette />
     </div>
   )
 }

@@ -10,6 +10,7 @@ import {
   type OpDetail,
   type OpHistory,
   type PassNode,
+  type SearchResult,
   type SelectableOp,
   type TraceInfo,
 } from './api'
@@ -42,6 +43,7 @@ interface ViewerState {
   inspectorTab: 'structure' | 'history'
   opDetail: OpDetail | null
   detailStale: boolean
+  paletteOpen: boolean
   load: () => Promise<void>
   selectPass: (id: number) => Promise<void>
   setViewMode: (mode: ViewMode) => void
@@ -51,6 +53,9 @@ interface ViewerState {
   selectOp: (uid: string) => Promise<void>
   openInspector: (tab: 'structure' | 'history') => void
   closeInspector: () => void
+  setPaletteOpen: (open: boolean) => void
+  stepPass: (direction: 1 | -1) => Promise<void>
+  jumpToSearchResult: (result: SearchResult) => Promise<void>
   viewHistoryStep: (passId: number) => Promise<void>
   reset: () => void
 }
@@ -78,6 +83,7 @@ const initialState = {
   inspectorTab: 'structure' as const,
   opDetail: null as OpDetail | null,
   detailStale: false,
+  paletteOpen: false,
 }
 
 function flatten(nodes: PassNode[], output: PassNode[] = []): PassNode[] {
@@ -233,6 +239,29 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
   },
   openInspector: (tab) => set({ inspectorOpen: true, inspectorTab: tab }),
   closeInspector: () => set({ inspectorOpen: false }),
+  setPaletteOpen: (open) => set({ paletteOpen: open }),
+  stepPass: async (direction) => {
+    const { roots, selectedPassId } = get()
+    const leaves: PassNode[] = []
+    const walk = (nodes: PassNode[]) => {
+      for (const node of nodes) {
+        if (node.children.length === 0) leaves.push(node)
+        else walk(node.children)
+      }
+    }
+    walk(roots)
+    const index = leaves.findIndex((leaf) => leaf.id === selectedPassId)
+    const next =
+      leaves[index === -1 ? 0 : Math.min(Math.max(index + direction, 0), leaves.length - 1)]
+    if (next && next.id !== selectedPassId) await get().selectPass(next.id)
+  },
+  jumpToSearchResult: async (result) => {
+    await get().selectPass(result.pass_id)
+    if (get().selectedFunc !== result.func) await get().selectFunc(result.func)
+    const ops = await api.selectableOps(result.pass_id, result.side, result.func)
+    const op = ops.find((candidate) => candidate.op_idx === result.op_idx)
+    if (op) await get().selectOp(op.uid)
+  },
   viewHistoryStep: async (passId) => {
     await get().selectPass(passId)
     set({ viewMode: 'text' })

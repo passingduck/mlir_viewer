@@ -92,6 +92,15 @@ h2 { position: sticky; top: 0; margin: 0; padding: 9px 12px; color: #9aa3b2; bac
 .op-structure code { font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; color: #cdd6e3; }
 .op-structure code.attrs { white-space: pre-wrap; word-break: break-word; }
 
+[cmdk-dialog] { position: fixed; inset: 0; display: grid; place-items: start center; padding-top: 12vh; background: rgba(0, 0, 0, 0.5); z-index: 100; }
+[cmdk-root] { width: min(640px, 92vw); background: #11141b; border: 1px solid #282d38; border-radius: 10px; overflow: hidden; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5); }
+[cmdk-input] { width: 100%; box-sizing: border-box; border: 0; border-bottom: 1px solid #282d38; background: #0e1117; color: #cdd6e3; padding: 12px 16px; font: 14px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; outline: none; }
+[cmdk-list] { max-height: 50vh; overflow: auto; padding: 6px; }
+[cmdk-group-heading] { color: #7f8999; font-size: 10px; text-transform: uppercase; letter-spacing: .08em; padding: 8px 10px 4px; }
+[cmdk-item] { padding: 7px 10px; border-radius: 6px; color: #cdd6e3; cursor: pointer; }
+[cmdk-item][data-selected='true'] { background: #1b2740; }
+[cmdk-empty] { padding: 16px; color: #7f8999; text-align: center; }
+
 @media (max-width: 900px) {
   main { grid-template-columns: 1fr; grid-template-rows: minmax(160px, 35vh) 1fr; }
   nav { border-right: 0; border-bottom: 1px solid #282d38; }
