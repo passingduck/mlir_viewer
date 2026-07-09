@@ -3,6 +3,7 @@ pub mod graph;
 pub mod model;
 pub mod parser;
 pub mod provenance;
+pub mod search;
 
 pub use diff::{
     diff_function, fingerprint_score, ChangeClass, FunctionDiff, GreedyFingerprintMatcher,
@@ -13,6 +14,7 @@ pub use graph::{
 };
 pub use model::{FunctionScope, OpFingerprint, OpIdx, ParsedModule, ParsedOp};
 pub use parser::parse_module;
+pub use search::{search_module, SearchMatch};
 pub use provenance::{
     resolve_function, EvidenceSource, HistoryChange, HistoryEvidence, HistoryStep, LinkConfidence,
     NormalizedIdentityEvent, NormalizedIdentityKind, OccurrenceKey, OpAnchor, OpHistory,
