@@ -315,6 +315,20 @@ fn unlinked_removed_op_gets_terminal_disappeared_step() {
     assert!(history.steps[0].before.is_some());
     assert!(history.steps[0].after.is_none());
     assert_eq!(history.steps[0].evidence, vec![]);
+
+    // The unlinked op that only exists in the after snapshot must read as an
+    // insertion, not an inverted disappearance.
+    let appeared = resolved
+        .histories
+        .values()
+        .find(|h| h.first_name == "y.other")
+        .expect("appeared op has a history");
+    assert_eq!(appeared.steps.len(), 1);
+    assert_eq!(appeared.steps[0].change, HistoryChange::Inserted);
+    assert!(appeared.steps[0].before.is_none());
+    let after_occurrence = appeared.steps[0].after.as_ref().expect("after occurrence");
+    assert_eq!(after_occurrence.side, SnapshotSide::After);
+    assert_eq!(appeared.steps[0].evidence, vec![]);
 }
 
 fn merge_stages(conflict: bool) -> Vec<TimelineStage> {

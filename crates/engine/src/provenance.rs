@@ -847,12 +847,18 @@ pub fn resolve_function(function: &str, stages: &[TimelineStage]) -> ResolvedFun
             let anchor_pass_id = anchor.pass_id;
             let anchor_pass_name = stages[anchor.key.stage_index].pass_name.clone();
             let anchor_occurrence = occurrence(&anchor.operation, anchor.key.side);
+            let (change, before, after) = match anchor.key.side {
+                SnapshotSide::Before => {
+                    (HistoryChange::Disappeared, Some(anchor_occurrence), None)
+                }
+                SnapshotSide::After => (HistoryChange::Inserted, None, Some(anchor_occurrence)),
+            };
             steps.push(HistoryStep {
                 pass_id: anchor_pass_id,
                 pass_name: anchor_pass_name,
-                change: HistoryChange::Disappeared,
-                before: Some(anchor_occurrence),
-                after: None,
+                change,
+                before,
+                after,
                 evidence: Vec::new(),
                 confidence: LinkConfidence::Exact,
             });
