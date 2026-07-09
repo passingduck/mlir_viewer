@@ -35,6 +35,7 @@ pub fn router(trace_path: impl AsRef<Path>) -> trace_format::Result<Router> {
         .route("/passes/{id}/functions", get(api::functions))
         .route("/passes/{id}/ir", get(api::ir_page))
         .route("/passes/{id}/ops", get(api::selectable_ops))
+        .route("/ops/{uid}", get(api::op_detail))
         .route("/ops/{uid}/history", get(api::op_history))
         .route("/search", get(api::search))
         .fallback(api::not_found);

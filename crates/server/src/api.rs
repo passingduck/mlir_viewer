@@ -469,6 +469,110 @@ pub(crate) async fn search(
     Ok(Msgpack(results))
 }
 
+#[derive(Deserialize)]
+pub(crate) struct OpDetailQuery {
+    pass: Option<i64>,
+    side: Option<String>,
+}
+
+fn truncate_attrs(mut text: String) -> String {
+    const MAX: usize = 2048;
+    if text.len() > MAX {
+        let mut cut = MAX;
+        while !text.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        text.truncate(cut);
+        text.push('…');
+    }
+    text
+}
+
+#[derive(Serialize)]
+pub(crate) struct OpDetailDto {
+    uid: String,
+    func: String,
+    pass_id: i64,
+    side: String,
+    op_idx: usize,
+    name: String,
+    results: Vec<String>,
+    operands: Vec<String>,
+    result_types: Vec<String>,
+    attr_summary: String,
+    location: Option<String>,
+    region_path: Vec<usize>,
+    line_start: usize,
+    line_end: usize,
+    opaque: bool,
+}
+
+pub(crate) async fn op_detail(
+    State(state): State<ServerState>,
+    Path(uid): Path<String>,
+    Query(query): Query<OpDetailQuery>,
+) -> Result<Msgpack<OpDetailDto>, ApiError> {
+    let uid = engine::OpUid::parse(&uid)
+        .map_err(|error| ApiError::bad_request(error.to_string()))?;
+    let anchor = uid
+        .parse_anchor()
+        .map_err(|error| ApiError::bad_request(error.to_string()))?;
+    let side = match query.side.as_deref() {
+        None => anchor.side,
+        Some("before") => engine::SnapshotSide::Before,
+        Some("after") => engine::SnapshotSide::After,
+        Some(_) => return Err(ApiError::bad_request("side must be 'before' or 'after'")),
+    };
+    let pass_id = query.pass.unwrap_or(anchor.pass_id);
+
+    let reader = open(&state)?;
+    let resolved = crate::provenance::resolved_function(&state, &reader, &anchor.function)?
+        .ok_or_else(|| ApiError::not_found(format!("function {:?} not found", anchor.function)))?;
+    let timeline = state
+        .cache
+        .timeline(&anchor.function)
+        .ok_or_else(|| ApiError::not_found(format!("function {:?} not found", anchor.function)))?;
+    let stage_index = timeline
+        .iter()
+        .position(|stage| stage.pass_id == pass_id)
+        .ok_or_else(|| ApiError::not_found(format!("pass {pass_id} is not an executable leaf")))?;
+    // Find this uid's occurrence at the requested stage/side.
+    let (key, _) = resolved
+        .selectable
+        .iter()
+        .find(|(key, op)| key.stage_index == stage_index && key.side == side && op.uid == uid)
+        .ok_or_else(|| {
+            ApiError::not_found(format!(
+                "operation UID {} has no occurrence at pass {pass_id}",
+                uid.as_str()
+            ))
+        })?;
+    let stage = &timeline[stage_index];
+    let snapshot = match side {
+        engine::SnapshotSide::Before => stage.before.as_ref(),
+        engine::SnapshotSide::After => stage.after.as_ref(),
+    }
+    .ok_or_else(|| ApiError::not_found(format!("pass {pass_id} has no such snapshot")))?;
+    let op = &snapshot.module.ops[key.op_idx];
+    Ok(Msgpack(OpDetailDto {
+        uid: uid.as_str().to_string(),
+        func: anchor.function,
+        pass_id,
+        side: if side == engine::SnapshotSide::Before { "before" } else { "after" }.to_string(),
+        op_idx: op.idx,
+        name: op.name.clone(),
+        results: op.results.clone(),
+        operands: op.operands.clone(),
+        result_types: op.result_types.clone(),
+        attr_summary: truncate_attrs(op.attr_summary.clone()),
+        location: op.location.clone(),
+        region_path: op.region_path.clone(),
+        line_start: op.line_start,
+        line_end: op.line_end,
+        opaque: op.opaque,
+    }))
+}
+
 pub(crate) async fn op_history(
     State(state): State<ServerState>,
     Path(uid): Path<String>,

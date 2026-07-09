@@ -198,6 +198,61 @@ async fn graph_endpoint_returns_nodes_and_respects_budget() {
 }
 
 #[tokio::test]
+async fn op_detail_returns_anchor_occurrence_by_default() {
+    let dir = tempfile::tempdir().unwrap();
+    let trace = dir.path().join("full.mlirtrace");
+    trace_format::fixture::write_full_demo_trace(&trace).unwrap();
+    let app = server::router(&trace).unwrap();
+    let (_, passes) = response_json(app.clone(), "/api/passes").await;
+    let canonicalize = passes[0]["children"][0]["id"].as_i64().unwrap();
+
+    let (_, ops) = response_msgpack::<Vec<Value>>(
+        app.clone(),
+        &format!("/api/passes/{canonicalize}/ops?side=before&func=f"),
+    )
+    .await;
+    let uid = ops.unwrap()[0]["uid"].as_str().unwrap().to_string();
+    let (status, detail) = response_msgpack::<Value>(app, &format!("/api/ops/{uid}")).await;
+    assert_eq!(status, 200);
+    let detail = detail.unwrap();
+    assert_eq!(detail["uid"], uid.as_str());
+    assert_eq!(detail["func"], "f");
+    assert!(detail["name"].as_str().unwrap().len() > 0);
+    assert!(detail["region_path"].is_array());
+}
+
+#[tokio::test]
+async fn op_detail_respects_pass_and_side_and_404s_when_absent() {
+    let dir = tempfile::tempdir().unwrap();
+    let trace = dir.path().join("full.mlirtrace");
+    trace_format::fixture::write_full_demo_trace(&trace).unwrap();
+    let app = server::router(&trace).unwrap();
+    let (_, passes) = response_json(app.clone(), "/api/passes").await;
+    let canonicalize = passes[0]["children"][0]["id"].as_i64().unwrap();
+
+    let (_, ops) = response_msgpack::<Vec<Value>>(
+        app.clone(),
+        &format!("/api/passes/{canonicalize}/ops?side=before&func=f"),
+    )
+    .await;
+    let uid = ops.unwrap()[0]["uid"].as_str().unwrap().to_string();
+
+    let (status, detail) = response_msgpack::<Value>(
+        app.clone(),
+        &format!("/api/ops/{uid}?pass={canonicalize}&side=before"),
+    )
+    .await;
+    assert_eq!(status, 200);
+    assert_eq!(detail.unwrap()["pass_id"], canonicalize);
+
+    let (status, _) = response_msgpack::<Value>(app.clone(), "/api/ops/not-a-uid").await;
+    assert_eq!(status, 400);
+
+    let (status, _) = response_msgpack::<Value>(app, "/api/ops/op1.Zg.2.b.999").await;
+    assert_eq!(status, 404);
+}
+
+#[tokio::test]
 async fn op_history_endpoints_resolve_full_fixture_and_validate_uids() {
     let dir = tempfile::tempdir().unwrap();
     let trace = dir.path().join("full.mlirtrace");
