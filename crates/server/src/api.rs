@@ -373,6 +373,102 @@ pub(crate) async fn selectable_ops(
     Ok(Msgpack(operations))
 }
 
+#[derive(Deserialize)]
+pub(crate) struct SearchQuery {
+    q: String,
+    pass: i64,
+    side: Option<String>,
+    scope: Option<String>,
+    budget: Option<usize>,
+}
+
+const DEFAULT_SEARCH_BUDGET: usize = 200;
+const MAX_SEARCH_BUDGET: usize = 500;
+
+#[derive(Serialize)]
+pub(crate) struct SearchResultDto {
+    pass_id: i64,
+    side: String,
+    func: String,
+    op_idx: usize,
+    name: String,
+    line_start: usize,
+    line_end: usize,
+    excerpt: String,
+}
+
+pub(crate) async fn search(
+    State(state): State<ServerState>,
+    Query(query): Query<SearchQuery>,
+) -> Result<Msgpack<Vec<SearchResultDto>>, ApiError> {
+    let budget = query.budget.unwrap_or(DEFAULT_SEARCH_BUDGET);
+    if budget == 0 || budget > MAX_SEARCH_BUDGET {
+        return Err(ApiError::bad_request(format!(
+            "budget must be between 1 and {MAX_SEARCH_BUDGET}"
+        )));
+    }
+    let scope = query.scope.as_deref().unwrap_or("pass");
+    if scope != "pass" && scope != "pipeline" {
+        return Err(ApiError::bad_request("scope must be 'pass' or 'pipeline'"));
+    }
+    let reader = open(&state)?;
+    let pass = reader.pass(PassId(query.pass))?;
+
+    // (pass_id, side-name, blob) list to search, deduped by blob.
+    let mut targets: Vec<(i64, &'static str, BlobId)> = Vec::new();
+    if scope == "pass" {
+        let side = query.side.as_deref().unwrap_or("after");
+        let blob = match side {
+            "before" => pass.ir_before,
+            "after" => pass.ir_after,
+            _ => return Err(ApiError::bad_request("side must be 'before' or 'after'")),
+        };
+        let blob = blob.ok_or_else(|| {
+            ApiError::not_found(format!("pass {} has no {side} snapshot", query.pass))
+        })?;
+        let side_name: &'static str = if side == "before" { "before" } else { "after" };
+        targets.push((query.pass, side_name, blob));
+    } else {
+        let roots = reader.passes()?;
+        let mut leaves = Vec::new();
+        crate::provenance::collect_leaves(&roots, &mut 0, &mut leaves);
+        leaves.sort_by_key(|(order, leaf)| (leaf.start_ns, *order));
+        let mut seen = std::collections::HashSet::new();
+        for (_, leaf) in leaves {
+            let (side_name, blob) = match (leaf.ir_after, leaf.ir_before) {
+                (Some(blob), _) => ("after", blob),
+                (None, Some(blob)) => ("before", blob),
+                (None, None) => continue,
+            };
+            if seen.insert(blob) {
+                targets.push((leaf.id.0, side_name, blob));
+            }
+        }
+    }
+
+    let mut results = Vec::new();
+    for (pass_id, side_name, blob) in targets {
+        let text = reader.blob_text(blob)?;
+        let module = state.cache.parsed(blob, &text);
+        for hit in engine::search_module(&module, &query.q, budget - results.len()) {
+            results.push(SearchResultDto {
+                pass_id,
+                side: side_name.to_string(),
+                func: hit.func,
+                op_idx: hit.op_idx,
+                name: hit.name,
+                line_start: hit.line_start,
+                line_end: hit.line_end,
+                excerpt: hit.excerpt,
+            });
+        }
+        if results.len() >= budget {
+            break;
+        }
+    }
+    Ok(Msgpack(results))
+}
+
 pub(crate) async fn op_history(
     State(state): State<ServerState>,
     Path(uid): Path<String>,

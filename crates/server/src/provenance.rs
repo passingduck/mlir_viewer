@@ -11,7 +11,7 @@ use trace_format::{
 
 use crate::ServerState;
 
-fn collect_leaves<'a>(
+pub(crate) fn collect_leaves<'a>(
     nodes: &'a [PassNode],
     order: &mut usize,
     output: &mut Vec<(usize, &'a PassNode)>,

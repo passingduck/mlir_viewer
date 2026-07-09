@@ -278,6 +278,86 @@ async fn op_history_endpoints_resolve_full_fixture_and_validate_uids() {
 }
 
 #[tokio::test]
+async fn search_scope_pass_finds_ops_on_requested_side() {
+    let dir = tempfile::tempdir().unwrap();
+    let trace = dir.path().join("full.mlirtrace");
+    trace_format::fixture::write_full_demo_trace(&trace).unwrap();
+    let app = server::router(&trace).unwrap();
+    let (_, passes) = response_json(app.clone(), "/api/passes").await;
+    let canonicalize = passes[0]["children"][0]["id"].as_i64().unwrap();
+
+    let (status, body) = response_msgpack::<Vec<Value>>(
+        app,
+        &format!("/api/search?q=arith&pass={canonicalize}&side=before&scope=pass"),
+    )
+    .await;
+    assert_eq!(status, 200);
+    let body = body.unwrap();
+    assert!(!body.is_empty());
+    assert!(body
+        .iter()
+        .all(|result| result["side"] == "before" && result["pass_id"] == canonicalize));
+}
+
+#[tokio::test]
+async fn search_scope_pipeline_dedupes_shared_blobs_and_respects_budget() {
+    let dir = tempfile::tempdir().unwrap();
+    let trace = dir.path().join("full.mlirtrace");
+    trace_format::fixture::write_full_demo_trace(&trace).unwrap();
+    let app = server::router(&trace).unwrap();
+    let (_, passes) = response_json(app.clone(), "/api/passes").await;
+    let canonicalize = passes[0]["children"][0]["id"].as_i64().unwrap();
+
+    let (status, all) = response_msgpack::<Vec<Value>>(
+        app.clone(),
+        &format!("/api/search?q=arith&pass={canonicalize}&scope=pipeline"),
+    )
+    .await;
+    assert_eq!(status, 200);
+    let all = all.unwrap();
+    assert!(!all.is_empty());
+
+    let (status, one) = response_msgpack::<Vec<Value>>(
+        app,
+        &format!("/api/search?q=arith&pass={canonicalize}&scope=pipeline&budget=1"),
+    )
+    .await;
+    assert_eq!(status, 200);
+    assert_eq!(one.unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn search_rejects_bad_params() {
+    let dir = tempfile::tempdir().unwrap();
+    let trace = dir.path().join("full.mlirtrace");
+    trace_format::fixture::write_full_demo_trace(&trace).unwrap();
+    let app = server::router(&trace).unwrap();
+    let (_, passes) = response_json(app.clone(), "/api/passes").await;
+    let canonicalize = passes[0]["children"][0]["id"].as_i64().unwrap();
+
+    let (status, _) = response_msgpack::<Vec<Value>>(
+        app.clone(),
+        &format!("/api/search?q=x&pass={canonicalize}&side=sideways"),
+    )
+    .await;
+    assert_eq!(status, 400);
+
+    let (status, _) = response_msgpack::<Vec<Value>>(
+        app.clone(),
+        &format!("/api/search?q=x&pass=999"),
+    )
+    .await;
+    assert_eq!(status, 404);
+
+    let (status, _) = response_msgpack::<Vec<Value>>(
+        app,
+        &format!("/api/search?q=x&pass={canonicalize}&budget=9999"),
+    )
+    .await;
+    assert_eq!(status, 400);
+}
+
+#[tokio::test]
 async fn op_history_falls_back_to_fingerprints_without_identity_rows() {
     let trace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../testdata/golden/demo-v1.mlirtrace");
